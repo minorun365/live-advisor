@@ -10,8 +10,9 @@ enum Fixture {
             note: "止められる時間が決まらず議論が堂々巡り",
             research: false,
             confidence: 0.9,
-            createdAt: Date()
+            createdAt: Date().addingTimeInterval(-60)
         )
+        direction.finishedAt = Date()
         direction.state = .done
         direction.recommendation = "検証環境で両方式の停止時間を測ってから方式を決める"
         direction.reasoning = "「止められるのは30分」に根拠がなく、どちらの方式も停止時間を測っていない。実測があれば、費用を含めて比べられる。"
@@ -28,30 +29,33 @@ enum Fixture {
             note: "相手からの質問",
             research: true,
             confidence: 0.92,
-            createdAt: Date()
+            createdAt: Date().addingTimeInterval(-300)
         )
+        answer.finishedAt = Date().addingTimeInterval(-120)
         answer.state = .done
         answer.startedAutomatically = true
         answer.conclusion = "2026年11月12日が最後のリリース予定で、以後は修正が出ない"
         answer.detail = "公式のバージョン方針の一覧で確認した。"
         answer.sources = [CardSource(title: "Versioning Policy（PostgreSQL 公式）", url: "https://www.postgresql.org/support/versioning/")]
 
-        let candidate = Card(
+        var candidate = Card(
             kind: .question,
             title: "論理レプリケーションで複製されないものは何か",
             note: "切り替え方式の案から",
             research: true,
             confidence: 0.7,
-            createdAt: Date()
+            createdAt: Date().addingTimeInterval(-400)
         )
-        let takeaway = Card(
+        candidate.readAt = Date()
+        var takeaway = Card(
             kind: .takeaway,
             title: "次回までに更新費用の概算を出す",
             note: "本人が持ち帰ると発言",
             research: false,
             confidence: 0.8,
-            createdAt: Date()
+            createdAt: Date().addingTimeInterval(-500)
         )
+        takeaway.readAt = Date()
         return [direction, answer, candidate, takeaway]
     }
 }

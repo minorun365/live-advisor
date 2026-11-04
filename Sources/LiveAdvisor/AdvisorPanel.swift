@@ -6,6 +6,8 @@ private enum Palette {
     static let hairline = Color(red: 0.92, green: 0.92, blue: 0.94)
     static let soft = Color(red: 0.965, green: 0.97, blue: 0.98)
     static let accent = Color(red: 0.10, green: 0.36, blue: 0.87)
+    static let unread = Color(red: 1.0, green: 0.975, blue: 0.82)
+    static let unreadEdge = Color(red: 0.96, green: 0.90, blue: 0.62)
 }
 
 struct PanelHeightKey: PreferenceKey {
@@ -17,30 +19,31 @@ struct AdvisorPanel: View {
     @ObservedObject var engine: AdvisorEngine
     var onQuit: () -> Void
     var onHeightChange: (CGFloat) -> Void
+    var expandsAllCards = false
 
     static let width: CGFloat = 400
     static let maximumBodyHeight: CGFloat = 560
 
     @State private var bodyHeight: CGFloat = 0
 
-    private var visible: [Card] { engine.cards.filter { !$0.dismissed } }
-    private var directions: [Card] { visible.filter { $0.kind == .direction && $0.state != .candidate } }
-    private var answers: [Card] { visible.filter { $0.kind != .direction && $0.state != .candidate } }
-    private var candidates: [Card] { Array(visible.filter { $0.state == .candidate }.prefix(6)) }
+    private var feed: [Card] { AdvisorPolicy.feed(engine.cards) }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             if hasBody {
                 Rectangle().fill(Palette.hairline).frame(height: 1)
-                ScrollView {
-                    content
-                        .background(GeometryReader { proxy in
-                            Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height)
-                        })
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        content
+                            .background(GeometryReader { geometry in
+                                Color.clear.preference(key: PanelHeightKey.self, value: geometry.size.height)
+                            })
+                    }
+                    .frame(height: min(bodyHeight, Self.maximumBodyHeight))
+                    .onPreferenceChange(PanelHeightKey.self) { bodyHeight = $0 }
+                    .onChange(of: engine.openCount) { proxy.scrollTo("top", anchor: .top) }
                 }
-                .frame(height: min(bodyHeight, Self.maximumBodyHeight))
-                .onPreferenceChange(PanelHeightKey.self) { bodyHeight = $0 }
             }
         }
         .frame(width: Self.width)
@@ -52,7 +55,7 @@ struct AdvisorPanel: View {
     }
 
     private var hasBody: Bool {
-        !visible.isEmpty || !engine.keywords.isEmpty || engine.phase == .paused
+        !feed.isEmpty || engine.phase == .paused
     }
 
     private var header: some View {
@@ -71,13 +74,14 @@ struct AdvisorPanel: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
-            if engine.isJudging || engine.cards.contains(where: { $0.state == .running }) {
-                ProgressView().controlSize(.small)
+            if engine.phase == .running {
+                RequestButton(isBusy: engine.isRequesting) { engine.requestNow() }
             }
             Menu {
                 if engine.phase == .running {
                     Button("この会議では止める") { engine.disableForThisMeeting() }
                 }
+                Toggle("スクリーンショットを撮れるようにする", isOn: $engine.allowsCapture)
                 Button("終了", action: onQuit)
             } label: {
                 Image(systemName: "ellipsis")
@@ -96,6 +100,7 @@ struct AdvisorPanel: View {
 
     private var statusText: String {
         if let problem = engine.problem { return problem }
+        if engine.allowsCapture { return "画面共有にも映ります" }
         switch engine.phase {
         case .idle: return "待機中"
         case .running: return "会議を見ています"
@@ -105,39 +110,223 @@ struct AdvisorPanel: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if engine.phase == .paused {
-                ResumeRow { engine.enableForThisMeeting() }
-            }
-            if !directions.isEmpty {
-                SectionTitle("進め方の提案")
-                ForEach(directions) { DirectionRow(card: $0, retry: engine.run, dismiss: engine.dismiss) }
-            }
-            if !answers.isEmpty {
-                SectionTitle("調べた結果")
-                ForEach(answers) { AnswerRow(card: $0, retry: engine.run, dismiss: engine.dismiss) }
-            }
-            if !candidates.isEmpty {
-                SectionTitle("候補")
-                ForEach(candidates) { CandidateRow(card: $0, run: engine.run, dismiss: engine.dismiss) }
-            }
-            if !engine.keywords.isEmpty {
-                SectionTitle("聞こえた言葉")
-                ForEach(engine.keywords) { keyword in
-                    Text(keyword.excerpt)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 0).id("top")
+            VStack(spacing: 8) {
+                if engine.phase == .paused {
+                    ResumeRow { engine.enableForThisMeeting() }
+                }
+                ForEach(feed) { card in
+                    FeedCard(card: card, startsExpanded: expandsAllCards, run: engine.run, markRead: engine.markRead)
                 }
             }
+            .padding(10)
+            .animation(.snappy(duration: 0.25), value: feed.map(\.id))
         }
-        .padding(.bottom, 10)
     }
 }
 
-private struct SectionTitle: View {
+private struct RequestButton: View {
+    let isBusy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isBusy {
+                    ProgressView().controlSize(.mini).tint(.white)
+                }
+                Text(isBusy ? "考え中" : "今すぐ提案")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Palette.accent.opacity(isBusy ? 0.6 : 1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .fixedSize()
+    }
+}
+
+private struct ResumeRow: View {
+    let enable: () -> Void
+
+    var body: some View {
+        Button(action: enable) {
+            Text("再開する")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Palette.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One topic. The first line is everything needed mid-meeting; a press opens the rest.
+/// Pressing a suggestion also starts it, so reading more and asking for more are one gesture.
+private struct FeedCard: View {
+    let card: Card
+    let run: (String) -> Void
+    let markRead: (String) -> Void
+    @State private var expanded: Bool
+
+    init(card: Card, startsExpanded: Bool, run: @escaping (String) -> Void, markRead: @escaping (String) -> Void) {
+        self.card = card
+        self.run = run
+        self.markRead = markRead
+        _expanded = State(initialValue: startsExpanded)
+    }
+
+    private var answer: String? { card.recommendation ?? card.conclusion }
+
+    private var canExpand: Bool {
+        switch card.state {
+        case .candidate: return card.canRun || !card.note.isEmpty
+        case .running: return !card.note.isEmpty
+        case .failed: return false
+        case .done:
+            return [card.reasoning, card.detail, card.askNext, card.unknowns].contains { $0?.isEmpty == false }
+                || !card.options.isEmpty || !card.sources.isEmpty
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggle) {
+                summary.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canExpand)
+            if expanded, canExpand {
+                details
+                    .padding(.top, 10)
+                    .transition(.opacity)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(card.isUnread ? Palette.unread : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(card.isUnread ? Palette.unreadEdge : Palette.hairline)
+        )
+        .animation(.easeOut(duration: 0.3), value: card.isUnread)
+    }
+
+    private func toggle() {
+        withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+        markRead(card.id)
+        if expanded, card.state == .candidate, card.canRun {
+            run(card.id)
+        }
+    }
+
+    private var summary: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                if let answer {
+                    Text(card.title)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(answer)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(card.title)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if card.state == .running {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(card.kind == .direction ? "考えています" : "調べています")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+                if card.state == .failed {
+                    HStack(spacing: 8) {
+                        Text(card.failure ?? "")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("もう一度") { run(card.id) }
+                            .buttonStyle(QuietButtonStyle())
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+            if canExpand {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .padding(.top, 3)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if card.state != .done {
+                if !card.note.isEmpty {
+                    BodyText(card.note)
+                }
+            } else {
+                if let reasoning = card.reasoning, !reasoning.isEmpty {
+                    BodyText(reasoning)
+                }
+                if let detail = card.detail, !detail.isEmpty {
+                    BodyText(detail)
+                }
+                if let ask = card.askNext, !ask.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("次に聞く")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondary)
+                        Text(ask)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(Palette.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                ForEach(card.options, id: \.self) { option in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(option.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Palette.ink)
+                        OptionLine(label: "良い", text: option.good)
+                        OptionLine(label: "弱い", text: option.bad)
+                    }
+                }
+                if let unknowns = card.unknowns, !unknowns.isEmpty {
+                    Text("未確認　\(unknowns)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                SourcesLine(sources: card.sources)
+            }
+        }
+    }
+}
+
+private struct BodyText: View {
     let text: String
 
     init(_ text: String) {
@@ -146,83 +335,22 @@ private struct SectionTitle: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Palette.secondary)
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 2)
+            .font(.system(size: 12.5))
+            .foregroundStyle(Palette.ink.opacity(0.82))
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-private struct ResumeRow: View {
-    let enable: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: enable) {
-                Text("再開する")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Palette.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(16)
-    }
-}
-
-/// Shared frame: a row with a hover close button and a hairline under it.
-private struct Row<Content: View>: View {
-    let dismiss: (() -> Void)?
-    @ViewBuilder let content: Content
-    @State private var hovering = false
-
-    var body: some View {
-        content
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .topTrailing) {
-                if hovering, let dismiss {
-                    Button(action: dismiss) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Palette.secondary)
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                }
-            }
-            .onHover { hovering = $0 }
-    }
-}
-
-private struct RunningLine: View {
+private struct OptionLine: View {
+    let label: String
     let text: String
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundStyle(Palette.secondary)
-    }
-}
-
-private struct FailureLine: View {
-    let card: Card
-    let retry: (String) -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(card.failure ?? "")
-                .font(.system(size: 12))
-                .foregroundStyle(Palette.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("もう一度") { retry(card.id) }
-                .buttonStyle(QuietButtonStyle())
-        }
+        Text("\(label)　\(text)")
+            .font(.system(size: 11.5))
+            .foregroundStyle(Palette.ink.opacity(0.8))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -251,155 +379,6 @@ private struct SourcesLine: View {
                             .foregroundStyle(Palette.accent)
                             .lineLimit(1)
                     }
-                }
-            }
-        }
-    }
-}
-
-private struct DirectionRow: View {
-    let card: Card
-    let retry: (String) -> Void
-    let dismiss: (String) -> Void
-    @State private var showsComparison = false
-
-    var body: some View {
-        Row(dismiss: { dismiss(card.id) }) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text(card.title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondary)
-                switch card.state {
-                case .running:
-                    RunningLine(text: "進め方を考えています")
-                case .failed:
-                    FailureLine(card: card, retry: retry)
-                default:
-                    if let recommendation = card.recommendation {
-                        Text(recommendation)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let reasoning = card.reasoning {
-                        Text(reasoning)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Palette.ink.opacity(0.82))
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let ask = card.askNext, !ask.isEmpty {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("次に聞くこと")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Palette.secondary)
-                            Text(ask)
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundStyle(Palette.ink)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Palette.soft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    if !card.options.isEmpty {
-                        Button(showsComparison ? "比較を閉じる" : "比較した案を見る") {
-                            showsComparison.toggle()
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Palette.accent)
-                    }
-                    if showsComparison {
-                        ForEach(card.options, id: \.self) { option in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.name)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Palette.ink)
-                                Text("良い点　\(option.good)")
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(Palette.ink.opacity(0.8))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text("弱い点　\(option.bad)")
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(Palette.ink.opacity(0.8))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                    if let unknowns = card.unknowns {
-                        Text("未確認　\(unknowns)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    SourcesLine(sources: card.sources)
-                }
-            }
-        }
-    }
-}
-
-private struct AnswerRow: View {
-    let card: Card
-    let retry: (String) -> Void
-    let dismiss: (String) -> Void
-
-    var body: some View {
-        Row(dismiss: { dismiss(card.id) }) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(card.title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondary)
-                switch card.state {
-                case .running:
-                    RunningLine(text: "調べています")
-                case .failed:
-                    FailureLine(card: card, retry: retry)
-                default:
-                    if let conclusion = card.conclusion {
-                        Text(conclusion)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let detail = card.detail, !detail.isEmpty {
-                        Text(detail)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Palette.ink.opacity(0.78))
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    SourcesLine(sources: card.sources)
-                }
-            }
-        }
-    }
-}
-
-private struct CandidateRow: View {
-    let card: Card
-    let run: (String) -> Void
-    let dismiss: (String) -> Void
-
-    var body: some View {
-        Row(dismiss: { dismiss(card.id) }) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Palette.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("\(card.kind.label)　\(card.note)")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Palette.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 4)
-                if card.canRun {
-                    Button(card.kind == .direction ? "考える" : "調べる") { run(card.id) }
-                        .buttonStyle(QuietButtonStyle())
-                        .padding(.trailing, 16)
                 }
             }
         }

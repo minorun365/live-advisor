@@ -83,6 +83,23 @@ struct AdvisorPolicy {
         }
     }
 
+    /// Untouched suggestions the judge itself rated "just in case" would only bury the useful cards.
+    static let minimumCandidateConfidence = 0.6
+    /// A glance this short is an accidental open, not reading.
+    static let minimumSeenSeconds: TimeInterval = 1.5
+
+    /// The one list the panel shows: whatever changed last comes first.
+    static func feed(_ cards: [Card]) -> [Card] {
+        cards
+            .filter { $0.state != .candidate || $0.confidence >= minimumCandidateConfidence }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// True when the card sat in an open panel long enough to have been noticed.
+    static func wasSeen(_ card: Card, openedAt: Date, closedAt: Date) -> Bool {
+        closedAt.timeIntervalSince(max(openedAt, card.updatedAt)) >= minimumSeenSeconds
+    }
+
     /// True when `title` asks what an earlier card already asked, allowing for rewording.
     static func isDuplicate(_ title: String, of existing: [String]) -> Bool {
         let grams = bigrams(title)

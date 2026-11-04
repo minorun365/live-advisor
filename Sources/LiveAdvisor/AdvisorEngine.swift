@@ -11,18 +11,17 @@ final class AdvisorEngine: ObservableObject {
         case finished
     }
 
-    struct Keyword: Identifiable {
-        let id = UUID()
-        let word: String
-        let excerpt: String
-    }
-
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var cards: [Card] = []
-    @Published private(set) var keywords: [Keyword] = []
     @Published private(set) var isJudging = false
     @Published private(set) var problem: String?
     @Published private(set) var hasUnread = false
+    /// Bumped on every open so the list can return to the newest card.
+    @Published private(set) var openCount = 0
+    /// macOS hides a window from screenshots and screen sharing with one switch, so this opens both.
+    @Published var allowsCapture = false
+
+    var isRequesting: Bool { cards.contains { $0.isRequested && $0.state == .running } }
 
     private let environment = ProcessInfo.processInfo.environment
     private lazy var home = FileManager.default.homeDirectoryForCurrentUser
@@ -51,6 +50,10 @@ final class AdvisorEngine: ObservableObject {
     private var queue: [String] = []
     private var jobRunning = false
     private var panelVisible = false
+    private var panelOpenedAt = Date()
+    #if DEBUG
+    private var pressedNow = false
+    #endif
 
     func start() {
         loadPreviousCards()
@@ -82,7 +85,6 @@ final class AdvisorEngine: ObservableObject {
         automaticUsed = 0
         queue = []
         cards = []
-        keywords = []
         problem = nil
         hasUnread = false
 
@@ -96,14 +98,17 @@ final class AdvisorEngine: ObservableObject {
 
     private func received(_ lines: [TranscriptLine]) {
         transcript.append(contentsOf: lines)
-        for line in lines {
-            guard let word = AdvisorPolicy.trigger(in: line) else { continue }
+        if lines.contains(where: { AdvisorPolicy.trigger(in: $0) != nil }) {
             triggerPending = true
-            if phase != .running {
-                keywords.insert(Keyword(word: word, excerpt: String(line.text.prefix(60))), at: 0)
-                keywords = Array(keywords.prefix(8))
-            }
         }
+        if problem == Self.noSpeechYet { problem = nil }
+        #if DEBUG
+        // The end-to-end test presses the button a person would press mid-meeting.
+        if environment["LIVE_ADVISOR_PRESS_NOW"] == "1", !pressedNow, transcript.count >= 8 {
+            pressedNow = true
+            requestNow()
+        }
+        #endif
         evaluate()
     }
 
@@ -119,6 +124,8 @@ final class AdvisorEngine: ObservableObject {
 
     func panelOpened() {
         panelVisible = true
+        panelOpenedAt = Date()
+        openCount += 1
         hasUnread = false
         panelOpenPending = true
         evaluate()
@@ -126,6 +133,36 @@ final class AdvisorEngine: ObservableObject {
 
     func panelClosed() {
         panelVisible = false
+        let now = Date()
+        for index in cards.indices where AdvisorPolicy.wasSeen(cards[index], openedAt: panelOpenedAt, closedAt: now) {
+            cards[index].readAt = now
+        }
+        save()
+    }
+
+    func markRead(cardID: String) {
+        update(cardID) { $0.readAt = Date() }
+    }
+
+    /// The button for when the meeting needs an answer now, without waiting for the judge's pace.
+    /// It skips the job queue: a person is waiting, and a running search can take a minute and a half.
+    func requestNow() {
+        guard phase == .running, !isRequesting else { return }
+        guard !transcript.isEmpty else {
+            problem = Self.noSpeechYet
+            return
+        }
+        problem = nil
+        var card = Card(kind: .direction, title: "今やるとよいこと", note: "", research: false, confidence: 1, createdAt: Date())
+        card.requested = true
+        card.state = .running
+        cards.insert(card, at: 0)
+        save()
+        Task {
+            await runRequest(card)
+            save()
+            if phase == .finished { writeSummary() }
+        }
     }
 
     func enableForThisMeeting() {
@@ -144,12 +181,6 @@ final class AdvisorEngine: ObservableObject {
         cards[index].state = .running
         cards[index].failure = nil
         enqueue(cardID)
-        save()
-    }
-
-    func dismiss(cardID: String) {
-        guard let index = cards.firstIndex(where: { $0.id == cardID }) else { return }
-        cards[index].dismissed = true
         save()
     }
 
@@ -215,7 +246,7 @@ final class AdvisorEngine: ObservableObject {
         for item in items where !AdvisorPolicy.isDuplicate(item.title, of: cards.map(\.title)) {
             // A stuck discussion keeps rewording itself. Only the latest untouched suggestion stays.
             if item.kind == .direction {
-                cards.removeAll { $0.kind == .direction && $0.state == .candidate && !$0.dismissed }
+                cards.removeAll { $0.kind == .direction && $0.state == .candidate }
             }
             var card = Card(
                 kind: item.kind,
@@ -250,7 +281,7 @@ final class AdvisorEngine: ObservableObject {
     private func startLatestResearchCandidate() {
         guard automaticUsed < AdvisorPolicy.automaticLimitPerMeeting,
               let card = cards.first(where: {
-                  $0.kind == .question && $0.state == .candidate && !$0.dismissed && $0.research
+                  $0.kind == .question && $0.state == .candidate && $0.research
               }) else { return }
         automaticUsed += 1
         update(card.id) { $0.startedAutomatically = true }
@@ -259,7 +290,7 @@ final class AdvisorEngine: ObservableObject {
 
     private var hasRecentDirection: Bool {
         cards.contains {
-            $0.kind == .direction && !$0.dismissed && ($0.state == .running || $0.state == .done)
+            $0.kind == .direction && ($0.state == .running || $0.state == .done)
                 && Date().timeIntervalSince($0.createdAt) < 600
         }
     }
@@ -281,7 +312,9 @@ final class AdvisorEngine: ObservableObject {
         }
         jobRunning = true
         Task {
-            if card.kind == .direction {
+            if card.isRequested {
+                await runRequest(card)
+            } else if card.kind == .direction {
                 await runDirection(card)
             } else {
                 await runResearch(card)
@@ -317,10 +350,7 @@ final class AdvisorEngine: ObservableObject {
     /// only, and the reasoning stage that reads the discussion has no tools at all.
     private func runDirection(_ card: Card) async {
         // What this meeting already found counts, so the advice does not call it unknown.
-        var findings = cards.compactMap { other -> String? in
-            guard other.id != card.id, other.state == .done, let conclusion = other.conclusion else { return nil }
-            return "問い：\(other.title)\n結論：\(conclusion)"
-        }
+        var findings = findings(excluding: card.id)
         for question in card.searchQuestions.prefix(2) {
             recordQuery(question)
             let result = await ClaudeRunner.run(webCall(question: question))
@@ -346,14 +376,50 @@ final class AdvisorEngine: ObservableObject {
             finish(card.id, failure: Self.message(for: result.failure))
             return
         }
-        update(card.id) {
+        apply(output, to: card.id)
+    }
+
+    /// Reads the whole meeting so far with no tools, so the answer comes back while it still matters.
+    private func runRequest(_ card: Card) async {
+        let call = ClaudeCall(
+            job: .direction,
+            model: "opus",
+            effort: "medium",
+            system: Prompts.requestSystem,
+            schema: Prompts.requestSchema,
+            budgetUSD: 0.15,
+            timeout: 60,
+            prompt: Prompts.requestPrompt(
+                memo: memo,
+                transcript: Self.tail(transcript.map(\.rendered).joined(separator: "\n"), limit: 8000),
+                findings: findings(excluding: card.id)
+            )
+        )
+        let result = await ClaudeRunner.run(call)
+        guard let data = result.structured, let output = try? JSONDecoder().decode(DirectionOutput.self, from: data) else {
+            finish(card.id, failure: Self.message(for: result.failure))
+            return
+        }
+        apply(output, to: card.id)
+    }
+
+    private func findings(excluding id: String) -> [String] {
+        cards.compactMap { other in
+            guard other.id != id, other.state == .done, let conclusion = other.conclusion else { return nil }
+            return "問い：\(other.title)\n結論：\(conclusion)"
+        }
+    }
+
+    private func apply(_ output: DirectionOutput, to id: String) {
+        update(id) {
+            if let title = output.title, !title.isEmpty { $0.title = title }
             $0.recommendation = output.recommendation
             $0.reasoning = output.why
             $0.options = output.options
             $0.askNext = output.ask_next
             $0.unknowns = output.unknowns.isEmpty ? nil : output.unknowns
         }
-        finish(card.id, failure: nil)
+        finish(id, failure: nil)
     }
 
     private func webCall(question: String) -> ClaudeCall {
@@ -389,6 +455,8 @@ final class AdvisorEngine: ObservableObject {
     private func report(_ failure: ClaudeResult.Failure?) {
         problem = Self.message(for: failure)
     }
+
+    private static let noSpeechYet = "まだ発言を拾えていません"
 
     private static func message(for failure: ClaudeResult.Failure?) -> String {
         switch failure {
@@ -435,11 +503,10 @@ final class AdvisorEngine: ObservableObject {
     /// A readable record beside the transcript. Marked as AI output so it never passes for a decision.
     private func writeSummary() {
         guard let folder else { return }
-        let visible = cards.filter { !$0.dismissed }
-        guard !visible.isEmpty else { return }
+        guard !cards.isEmpty else { return }
         var lines = ["# 助言さんの記録", "", "会議中に AI が提案した内容で、決定事項ではない。", ""]
         if !memo.isEmpty { lines += ["## 要点メモ", "", memo, ""] }
-        for card in visible {
+        for card in cards {
             lines.append("## [\(card.kind.label)] \(card.title)")
             lines.append("")
             lines.append(card.note)
@@ -471,8 +538,11 @@ final class AdvisorEngine: ObservableObject {
         guard let data = try? Data(contentsOf: file) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let saved = ((try? decoder.decode([Card].self, from: data)) ?? []).filter { $0.state == .done && !$0.dismissed }
+        var saved = ((try? decoder.decode([Card].self, from: data)) ?? []).filter { $0.state == .done }
         if !saved.isEmpty {
+            // Yesterday's news is not news: restored cards never come back highlighted.
+            let now = Date()
+            for index in saved.indices { saved[index].readAt = now }
             cards = saved
             phase = .finished
         }

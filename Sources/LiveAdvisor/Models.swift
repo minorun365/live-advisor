@@ -57,7 +57,10 @@ struct Card: Codable, Identifiable {
     var startedAutomatically = false
     var createdAt: Date
     var finishedAt: Date?
-    var dismissed = false
+    /// Set when the person has seen this version of the card. A later result makes it unread again.
+    var readAt: Date?
+    /// Asked for with the button, not picked by the judge. Optional so older saved cards still load.
+    var requested: Bool?
 
     var conclusion: String?
     var detail: String?
@@ -72,6 +75,9 @@ struct Card: Codable, Identifiable {
     var failure: String?
 
     var canRun: Bool { kind == .direction || research }
+    var isRequested: Bool { requested == true }
+    var updatedAt: Date { finishedAt ?? createdAt }
+    var isUnread: Bool { readAt.map { $0 < updatedAt } ?? true }
 }
 
 /// What Haiku returns for one pass over the new transcript.
@@ -98,6 +104,8 @@ struct ResearchOutput: Decodable {
 }
 
 struct DirectionOutput: Decodable {
+    /// Only the button's proposal names its own topic. A judged card already has one.
+    var title: String?
     let recommendation: String
     let why: String
     let options: [DirectionOption]

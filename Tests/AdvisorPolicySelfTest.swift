@@ -8,6 +8,7 @@ struct AdvisorPolicySelfTest {
         try duplicates()
         try config()
         try tailer()
+        try feed()
         try menuBar()
         print("AdvisorPolicySelfTest OK")
     }
@@ -114,6 +115,35 @@ struct AdvisorPolicySelfTest {
         try handle.close()
         try check(tailer.poll().stopped, "停止を検知する")
         try check(!tailer.poll().grew, "増えていなければ何もしない")
+    }
+
+    static func feed() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        func card(_ title: String, at offset: TimeInterval, state: CardState = .done, confidence: Double = 0.9) -> Card {
+            var card = Card(kind: .question, title: title, note: "", research: true, confidence: confidence, createdAt: start.addingTimeInterval(offset))
+            card.state = state
+            return card
+        }
+        var finishedLate = card("先に出て後から答えが出た", at: 0)
+        finishedLate.finishedAt = start.addingTimeInterval(100)
+        let order = AdvisorPolicy.feed([card("古い", at: 10), card("新しい", at: 50), finishedLate]).map(\.title)
+        try check(order == ["先に出て後から答えが出た", "新しい", "古い"], "最後に変わったものが一番上に来る")
+        try check(AdvisorPolicy.feed([card("念のため", at: 0, state: .candidate, confidence: 0.5)]).isEmpty, "確信度の低い候補は並べない")
+        try check(AdvisorPolicy.feed([card("念のための結果", at: 0, state: .done, confidence: 0.5)]).count == 1, "答えが出たものは確信度によらず並べる")
+
+        var unread = card("未読", at: 0)
+        try check(unread.isUnread, "読むまでは未読")
+        unread.readAt = start.addingTimeInterval(10)
+        try check(!unread.isUnread, "読めば既読")
+        unread.finishedAt = start.addingTimeInterval(20)
+        try check(unread.isUnread, "読んだ後に答えが出たらまた未読")
+
+        let shown = card("開く前からある", at: 0)
+        let opened = start.addingTimeInterval(100)
+        try check(!AdvisorPolicy.wasSeen(shown, openedAt: opened, closedAt: opened.addingTimeInterval(1)), "開いてすぐ閉じたら既読にしない")
+        try check(AdvisorPolicy.wasSeen(shown, openedAt: opened, closedAt: opened.addingTimeInterval(3)), "開いて少し経てば既読")
+        let arrived = card("閉じる直前に来た", at: 102)
+        try check(!AdvisorPolicy.wasSeen(arrived, openedAt: opened, closedAt: opened.addingTimeInterval(3)), "閉じる直前に来たものは未読のまま")
     }
 
     static func menuBar() throws {
