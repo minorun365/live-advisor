@@ -5,6 +5,7 @@ private enum Palette {
     static let secondary = Color(red: 0.42, green: 0.43, blue: 0.47)
     static let hairline = Color(red: 0.92, green: 0.92, blue: 0.94)
     static let soft = Color(red: 0.965, green: 0.97, blue: 0.98)
+    static let callout = Color(red: 0.945, green: 0.945, blue: 0.955)
     static let accent = Color(red: 0.10, green: 0.36, blue: 0.87)
     static let question = Color(red: 0.110, green: 0.110, blue: 0.129)
     static let answer = Color(red: 0.420, green: 0.427, blue: 0.463)
@@ -28,6 +29,8 @@ struct AdvisorPanel: View {
     static let maximumBodyHeight: CGFloat = 560
 
     @State private var bodyHeight: CGFloat = 0
+    /// Only one card stays open, so the list stays short enough to scan during a meeting.
+    @State private var openCardID: String?
 
     private var feed: [Card] { AdvisorPolicy.feed(engine.cards) }
 
@@ -46,6 +49,11 @@ struct AdvisorPanel: View {
                     .frame(height: min(bodyHeight, Self.maximumBodyHeight))
                     .onPreferenceChange(PanelHeightKey.self) { bodyHeight = $0 }
                     .onChange(of: engine.openCount) { proxy.scrollTo("top", anchor: .top) }
+                    .onChange(of: openCardID) { _, id in
+                        // Closing a longer card above would otherwise push the opened one out of view.
+                        guard let id else { return }
+                        withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(id, anchor: .top) }
+                    }
                 }
             }
         }
@@ -84,7 +92,6 @@ struct AdvisorPanel: View {
                 if engine.phase == .running {
                     Button("この会議では止める") { engine.disableForThisMeeting() }
                 }
-                Toggle("スクリーンショットを撮れるようにする", isOn: $engine.allowsCapture)
                 Button("終了", action: onQuit)
             } label: {
                 Image(systemName: "ellipsis")
@@ -104,12 +111,17 @@ struct AdvisorPanel: View {
     private var statusText: String {
         if let problem = engine.problem { return problem }
         if engine.transcriberMissing { return "準備が必要です" }
-        if engine.allowsCapture { return "画面共有にも映ります" }
         switch engine.phase {
         case .idle: return "待機中"
         case .running: return "会議を見ています"
         case .paused: return "この会議では止めています"
         case .finished: return "前回の会議の記録"
+        }
+    }
+
+    private func toggleCard(_ id: String) {
+        withAnimation(.snappy(duration: 0.2)) {
+            openCardID = openCardID == id ? nil : id
         }
     }
 
@@ -124,7 +136,14 @@ struct AdvisorPanel: View {
                     ResumeRow { engine.enableForThisMeeting() }
                 }
                 ForEach(feed) { card in
-                    FeedCard(card: card, startsExpanded: expandsAllCards, run: engine.run, markRead: engine.markRead)
+                    FeedCard(
+                        card: card,
+                        expanded: expandsAllCards || openCardID == card.id,
+                        toggle: { toggleCard(card.id) },
+                        run: engine.run,
+                        markRead: engine.markRead
+                    )
+                    .id(card.id)
                 }
             }
             .padding(10)
@@ -205,16 +224,10 @@ private struct ResumeRow: View {
 /// Pressing a suggestion also starts it, so reading more and asking for more are one gesture.
 private struct FeedCard: View {
     let card: Card
+    let expanded: Bool
+    let toggle: () -> Void
     let run: (String) -> Void
     let markRead: (String) -> Void
-    @State private var expanded: Bool
-
-    init(card: Card, startsExpanded: Bool, run: @escaping (String) -> Void, markRead: @escaping (String) -> Void) {
-        self.card = card
-        self.run = run
-        self.markRead = markRead
-        _expanded = State(initialValue: startsExpanded)
-    }
 
     private var answer: String? { card.recommendation ?? card.conclusion }
 
@@ -231,7 +244,7 @@ private struct FeedCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) {
+            Button(action: press) {
                 summary.contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -253,10 +266,11 @@ private struct FeedCard: View {
         .animation(.easeOut(duration: 0.3), value: card.isUnread)
     }
 
-    private func toggle() {
-        withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+    private func press() {
+        let opening = !expanded
+        toggle()
         markRead(card.id)
-        if expanded, card.state == .candidate, card.canRun {
+        if opening, card.state == .candidate, card.canRun {
             run(card.id)
         }
     }
@@ -377,7 +391,7 @@ private struct FeedCard: View {
                     }
                     .padding(9)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Palette.callout, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 ForEach(card.options, id: \.self) { option in
                     VStack(alignment: .leading, spacing: 1) {

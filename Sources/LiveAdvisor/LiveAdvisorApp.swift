@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engine = AdvisorEngine()
     private var statusItem: NSStatusItem!
     private var panel: AdvisorWindow!
-    private var outsideClickMonitor: Any?
     private var subscriptions = Set<AnyCancellable>()
     private var contentHeight: CGFloat = 60
 
@@ -43,9 +42,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &subscriptions)
 
         panel = makePanel()
-        engine.$allowsCapture
-            .sink { [weak self] allowed in self?.panel.sharingType = allowed ? .readOnly : .none }
-            .store(in: &subscriptions)
         engine.start()
 
         if isInstalled {
@@ -54,7 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         if arguments.contains("--fixture") { engine.loadFixture() }
-        if arguments.contains("--allow-capture") { engine.allowsCapture = true }
         if let flag = arguments.firstIndex(of: "--menu-preview"), arguments.indices.contains(flag + 1) {
             engine.previewMenuBar(arguments[flag + 1])
         }
@@ -89,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.sharingType = .none
+        panel.sharingType = .readOnly
 
         let host = NSHostingView(rootView: AdvisorPanel(
             engine: engine,
@@ -125,23 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.panelOpened()
         panel.orderFrontRegardless()
         reposition()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            // The click that takes a screenshot must not close what is being photographed.
-            Task { @MainActor in
-                guard self?.engine.allowsCapture == false else { return }
-                self?.hidePanel()
-            }
-        }
     }
 
+    /// Only the menu bar icon closes the panel: the click that takes a screenshot must not close what is being photographed.
     private func hidePanel() {
-        engine.allowsCapture = false
         panel.orderOut(nil)
         engine.panelClosed()
-        if let outsideClickMonitor {
-            NSEvent.removeMonitor(outsideClickMonitor)
-        }
-        outsideClickMonitor = nil
     }
 
     /// Keeps the top edge under the menu bar icon while the content grows or shrinks.

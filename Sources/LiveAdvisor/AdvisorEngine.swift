@@ -20,8 +20,6 @@ final class AdvisorEngine: ObservableObject {
     @Published private(set) var openCount = 0
     /// Without the transcriber nothing ever starts, so the panel says so instead of waiting silently.
     @Published private(set) var transcriberMissing = false
-    /// macOS hides a window from screenshots and screen sharing with one switch, so this opens both.
-    @Published var allowsCapture = false
 
     var isRequesting: Bool { cards.contains { $0.isRequested && $0.state == .running } }
 
