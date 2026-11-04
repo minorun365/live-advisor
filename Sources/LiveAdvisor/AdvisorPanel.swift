@@ -192,7 +192,7 @@ private struct FeedCard: View {
         case .failed: return false
         case .done:
             return [card.reasoning, card.detail, card.askNext, card.unknowns].contains { $0?.isEmpty == false }
-                || !card.options.isEmpty || !card.sources.isEmpty
+                || !card.options.isEmpty || !card.sources.isEmpty || card.points?.isEmpty == false
         }
     }
 
@@ -209,7 +209,8 @@ private struct FeedCard: View {
                     .transition(.opacity)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, isSlim ? 7 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(card.isUnread ? Palette.unread : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
@@ -227,22 +228,54 @@ private struct FeedCard: View {
         }
     }
 
+    /// Nothing has been worked out yet, so it stays out of the way of the cards that have answers.
+    private var isSlim: Bool { card.state == .candidate && !expanded }
+
+    @ViewBuilder
     private var summary: some View {
+        if isSlim {
+            slimSummary
+        } else {
+            fullSummary
+        }
+    }
+
+    private var slimSummary: some View {
+        HStack(spacing: 8) {
+            Text(card.title)
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.ink.opacity(0.75))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if card.canRun {
+                Text(card.kind == .direction ? "考える" : "調べる")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Palette.accent)
+            } else if canExpand {
+                chevron
+            }
+        }
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Palette.secondary)
+            .rotationEffect(.degrees(expanded ? 90 : 0))
+    }
+
+    private var fullSummary: some View {
         HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let answer {
-                    Text(card.title)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                     Text(answer)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Palette.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(card.title)
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundStyle(Palette.ink)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.ink.opacity(0.82))
+                        .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if card.state == .running {
@@ -268,11 +301,7 @@ private struct FeedCard: View {
             }
             Spacer(minLength: 0)
             if canExpand {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                    .padding(.top, 3)
+                chevron.padding(.top, 4)
             }
         }
     }
@@ -285,6 +314,18 @@ private struct FeedCard: View {
                     BodyText(card.note)
                 }
             } else {
+                if let points = card.points, !points.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(points, id: \.self) { point in
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("・")
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(Palette.secondary)
+                                BodyText(point)
+                            }
+                        }
+                    }
+                }
                 if let reasoning = card.reasoning, !reasoning.isEmpty {
                     BodyText(reasoning)
                 }

@@ -1,7 +1,7 @@
 import Foundation
 
 struct ClaudeCall {
-    enum Job: String { case judge, research, direction }
+    enum Job: String { case judge, research, direction, tighten }
 
     let job: Job
     let model: String

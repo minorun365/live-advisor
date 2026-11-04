@@ -100,6 +100,29 @@ struct AdvisorPolicy {
         closedAt.timeIntervalSince(max(openedAt, card.updatedAt)) >= minimumSeenSeconds
     }
 
+    static let titleLimit = 18
+    static let answerLimit = 25
+    static let pointLimit = 25
+
+    static func titleRequest(_ title: String, kind: CardKind) -> TightenRequest {
+        TightenRequest(text: title, limit: titleLimit, asks: kind != .takeaway)
+    }
+
+    /// A prompt asks for these limits but cannot enforce them, so the result is measured here.
+    static func needsTightening(_ request: TightenRequest) -> Bool {
+        if request.text.count > request.limit { return true }
+        return request.asks && !(request.text.hasSuffix("？") || request.text.hasSuffix("?"))
+    }
+
+    /// Takes the rewrite only when it improves on the original. Nothing is ever cut mid-sentence.
+    static func pick(_ request: TightenRequest, rewritten: String) -> String {
+        let text = rewritten.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return request.text }
+        let fixed = TightenRequest(text: text, limit: request.limit, asks: request.asks)
+        if !needsTightening(fixed) || text.count < request.text.count { return text }
+        return request.text
+    }
+
     /// True when `title` asks what an earlier card already asked, allowing for rewording.
     static func isDuplicate(_ title: String, of existing: [String]) -> Bool {
         let grams = bigrams(title)

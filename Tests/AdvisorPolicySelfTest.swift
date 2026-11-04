@@ -10,7 +10,20 @@ struct AdvisorPolicySelfTest {
         try tailer()
         try feed()
         try menuBar()
+        try tightening()
         print("AdvisorPolicySelfTest OK")
+    }
+
+    static func tightening() throws {
+        let ask = AdvisorPolicy.titleRequest("設定が適用されたかの確認方法", kind: .question)
+        try check(AdvisorPolicy.needsTightening(ask), "「？」が無い質問は書き直す")
+        try check(!AdvisorPolicy.needsTightening(AdvisorPolicy.titleRequest("いつ課金される？", kind: .question)), "短い問いはそのまま")
+        try check(!AdvisorPolicy.needsTightening(AdvisorPolicy.titleRequest("費用の概算を出す", kind: .takeaway)), "持ち帰りは問いにしない")
+        let long = TightenRequest(text: String(repeating: "あ", count: 26), limit: AdvisorPolicy.answerLimit)
+        try check(AdvisorPolicy.needsTightening(long), "26字の答えは書き直す")
+        try check(AdvisorPolicy.pick(long, rewritten: String(repeating: "あ", count: 40)) == long.text, "長くなった書き直しは使わない")
+        try check(AdvisorPolicy.pick(long, rewritten: "  ") == long.text, "空の書き直しは使わない")
+        try check(AdvisorPolicy.pick(ask, rewritten: "設定が入ったか、どう確かめる？") == "設定が入ったか、どう確かめる？", "条件を満たす書き直しを使う")
     }
 
     static func judgeTiming() throws {

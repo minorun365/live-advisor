@@ -63,7 +63,10 @@ struct Card: Codable, Identifiable {
     var requested: Bool?
 
     var conclusion: String?
+    /// Older saved cards keep their prose here. New results use `points`.
     var detail: String?
+    /// Short lines shown when the card opens. Optional so older saved cards still load.
+    var points: [String]?
     var sources: [CardSource] = []
 
     var recommendation: String?
@@ -84,7 +87,7 @@ struct Card: Codable, Identifiable {
 struct JudgeOutput: Decodable {
     struct Item: Decodable {
         let kind: CardKind
-        let title: String
+        var title: String
         let note: String
         let research: Bool
         let confidence: Double
@@ -94,12 +97,23 @@ struct JudgeOutput: Decodable {
     }
 
     let memo: String
-    let cards: [Item]
+    var cards: [Item]
+}
+
+/// One line to shorten, with the limit it has to fit.
+struct TightenRequest: Equatable {
+    let text: String
+    let limit: Int
+    var asks = false
+}
+
+struct TightenOutput: Decodable {
+    let items: [String]
 }
 
 struct ResearchOutput: Decodable {
     let conclusion: String
-    let detail: String
+    let points: [String]
     let sources: [CardSource]
 }
 
@@ -107,7 +121,7 @@ struct DirectionOutput: Decodable {
     /// Only the button's proposal names its own topic. A judged card already has one.
     var title: String?
     let recommendation: String
-    let why: String
+    let points: [String]
     let options: [DirectionOption]
     let ask_next: String
     let unknowns: String

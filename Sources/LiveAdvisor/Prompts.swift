@@ -20,7 +20,7 @@ enum Prompts {
     declared_by_self は「自分：」の行で本人が持ち帰りを宣言したときだけ true。asked_by_others は「相手：」の行の質問のときだけ true。話者が無い文字起こしでは文脈で判断し、迷えば false。
     search_questions は Web検索へ渡す問いの文。direction は判断材料になる問いを0〜2本、research が true の項目は1本書く。
     search_questions には会社名・人名・案件名・製品の社内呼称・金額を絶対に入れず、公開情報として一般化して書く。それ以外の項目は空配列。
-    confidence は今すぐ答えがあると助かる度合い（0〜1）。0.9 は相手が本人へはっきり質問して本人が答えられていないとき、参加者が結論を求めたまま議論が止まっているとき。0.7 は知っておくと助かる程度。0.5 以下は念のため。title は何の話かがすぐ分かる20字以内の問いか名詞、note は拾った理由を40字以内。memo は要点メモを250字以内で更新したもの。
+    confidence は今すぐ答えがあると助かる度合い（0〜1）。0.9 は相手が本人へはっきり質問して本人が答えられていないとき、参加者が結論を求めたまま議論が止まっているとき。0.7 は知っておくと助かる程度。0.5 以下は念のため。title は同僚に話しかける口調の短い問いで、18字以内に収め「？」で終わらせる（例：「席の追加、いつ課金される？」「検証は誰がいつやる？」）。「〜の確認方法」「〜するか」で終えない。takeaway だけは問いにせず「費用の概算を出す」のようにやることを書く。note は拾った理由を40字以内。memo は要点メモを250字以内で更新したもの。
     """
 
     static let judgeSchema = #"""
@@ -46,25 +46,25 @@ enum Prompts {
     static let researchSystem = """
     質問に、公式情報を確かめて短く答える。
     \(plainWords)
-    conclusion は答えそのものを1文50字以内で書く。detail は判断に要る補足を80字以内で、無ければ空文字。sources は確かめたページを1〜3本。
-    分からなければ conclusion に分からないと書き、推測で埋めない。
+    conclusion は答えだけを25字以内で書く（例：「最大1時間で反映」）。理由や条件は入れない。points は判断に要る補足を最大3個、各25字以内の短い文で書き、無ければ空配列。sources は確かめたページを1〜3本。
+    分からなければ conclusion を「公式では確認できず」のように短く書き、推測で埋めない。
     """
 
     static let researchSchema = #"""
-    {"type":"object","properties":{"conclusion":{"type":"string"},"detail":{"type":"string"},"sources":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"url":{"type":"string"}},"required":["title","url"],"additionalProperties":false}}},"required":["conclusion","detail","sources"],"additionalProperties":false}
+    {"type":"object","properties":{"conclusion":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"sources":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"url":{"type":"string"}},"required":["title","url"],"additionalProperties":false}}},"required":["conclusion","points","sources"],"additionalProperties":false}
     """#
 
     static let directionSystem = """
     会議で詰まっている論点について、本人が次に議論をどちらへ進めるとよいかを提案する。
     論点を整理するだけで終わらせず、推奨を1つに決める。根拠は会議の発言と調査結果に限り、無い事実を足さない。
     \(plainWords)
-    recommendation は進める方向を40字以内で言い切る。why はそう判断した理由を80字以内。
+    recommendation は進める方向を25字以内で言い切る。points はそう判断した理由を最大3個、各25字以内の短い文で書く。
     options は比較した案を2〜3個。name は12字以内、good と bad は各25字以内。
     ask_next はこの場で相手へそのまま言える1問を40字以内。unknowns は判断を変えうる未確認事項を40字以内。無ければ空文字。
     """
 
     static let directionSchema = #"""
-    {"type":"object","properties":{"recommendation":{"type":"string"},"why":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["recommendation","why","options","ask_next","unknowns"],"additionalProperties":false}
+    {"type":"object","properties":{"recommendation":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["recommendation","points","options","ask_next","unknowns"],"additionalProperties":false}
     """#
 
     static let requestSystem = """
@@ -72,14 +72,30 @@ enum Prompts {
     まだ話が始まったばかりなら、話を前へ進めるために本人が最初に聞くとよいことを選ぶ。話が詰まっているなら、詰まりをほどく一手を選ぶ。
     根拠は会議の発言と調査結果に限り、無い事実を足さない。
     \(plainWords)
-    title は何についての提案かを20字以内の名詞で書く。recommendation はいまやることを40字以内で言い切る。why はその理由を80字以内。
+    title は何についての提案かを、18字以内で「？」で終わる短い問いで書く（例：「更新はいつ止める？」）。recommendation はいまやることを25字以内で言い切る。points はその理由を最大3個、各25字以内の短い文で書く。
     options は迷う案があるときだけ2〜3個で、無ければ空配列。name は12字以内、good と bad は各25字以内。
     ask_next はこの場で相手へそのまま言える1問を40字以内。unknowns は判断を変えうる未確認事項を40字以内。無ければ空文字。
     """
 
     static let requestSchema = #"""
-    {"type":"object","properties":{"title":{"type":"string"},"recommendation":{"type":"string"},"why":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["title","recommendation","why","options","ask_next","unknowns"],"additionalProperties":false}
+    {"type":"object","properties":{"title":{"type":"string"},"recommendation":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["title","recommendation","points","options","ask_next","unknowns"],"additionalProperties":false}
     """#
+
+    static let tightenSystem = """
+    会議の合間に一目で読む短文を書き直す。意味と固有名詞、数字、コマンド名は変えず、理由や前置きを削る。
+    入力の各行は「番号. [条件] 文」の形で、条件の字数に必ず収める。条件に「問い」とあれば、話しかける口調で「？」で終わらせる。
+    items に、入力と同じ順番、同じ個数で、書き直した文だけを入れる。
+    """
+
+    static let tightenSchema = #"""
+    {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
+    """#
+
+    static func tightenPrompt(_ requests: [TightenRequest]) -> String {
+        requests.enumerated().map { index, request in
+            "\(index + 1). [\(request.limit)字以内\(request.asks ? "・問い" : "")] \(request.text)"
+        }.joined(separator: "\n")
+    }
 
     static func requestPrompt(memo: String, transcript: String, findings: [String]) -> String {
         """

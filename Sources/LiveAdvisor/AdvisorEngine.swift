@@ -223,12 +223,15 @@ final class AdvisorEngine: ObservableObject {
         )
         Task {
             let result = await ClaudeRunner.run(call)
-            isJudging = false
             guard let data = result.structured,
-                  let output = try? JSONDecoder().decode(JudgeOutput.self, from: data) else {
+                  var output = try? JSONDecoder().decode(JudgeOutput.self, from: data) else {
+                isJudging = false
                 report(result.failure)
                 return
             }
+            let titles = await tightened(output.cards.map { AdvisorPolicy.titleRequest($0.title, kind: $0.kind) })
+            for index in output.cards.indices { output.cards[index].title = titles[index] }
+            isJudging = false
             problem = nil
             judgedCount = end
             memo = output.memo
@@ -338,9 +341,13 @@ final class AdvisorEngine: ObservableObject {
             finish(card.id, failure: Self.message(for: result.failure))
             return
         }
+        let lines = await tightened(
+            [TightenRequest(text: output.conclusion, limit: AdvisorPolicy.answerLimit)]
+                + output.points.prefix(3).map { TightenRequest(text: $0, limit: AdvisorPolicy.pointLimit) }
+        )
         update(card.id) {
-            $0.conclusion = output.conclusion
-            $0.detail = output.detail
+            $0.conclusion = lines[0]
+            $0.points = Array(lines.dropFirst())
             $0.sources = output.sources
         }
         finish(card.id, failure: nil)
@@ -355,7 +362,7 @@ final class AdvisorEngine: ObservableObject {
             recordQuery(question)
             let result = await ClaudeRunner.run(webCall(question: question))
             if let data = result.structured, let output = try? JSONDecoder().decode(ResearchOutput.self, from: data) {
-                findings.append("問い：\(question)\n結論：\(output.conclusion)\n補足：\(output.detail)")
+                findings.append("問い：\(question)\n結論：\(output.conclusion)\n補足：\(output.points.joined(separator: "、"))")
                 update(card.id) { $0.sources = Array(($0.sources + output.sources.prefix(2)).prefix(4)) }
             }
         }
@@ -376,7 +383,7 @@ final class AdvisorEngine: ObservableObject {
             finish(card.id, failure: Self.message(for: result.failure))
             return
         }
-        apply(output, to: card.id)
+        await apply(output, to: card.id)
     }
 
     /// Reads the whole meeting so far with no tools, so the answer comes back while it still matters.
@@ -400,7 +407,7 @@ final class AdvisorEngine: ObservableObject {
             finish(card.id, failure: Self.message(for: result.failure))
             return
         }
-        apply(output, to: card.id)
+        await apply(output, to: card.id)
     }
 
     private func findings(excluding id: String) -> [String] {
@@ -410,16 +417,48 @@ final class AdvisorEngine: ObservableObject {
         }
     }
 
-    private func apply(_ output: DirectionOutput, to id: String) {
+    private func apply(_ output: DirectionOutput, to id: String) async {
+        let title = output.title.flatMap { $0.isEmpty ? nil : $0 }
+        let pointCount = min(output.points.count, 3)
+        let lines = await tightened(
+            [TightenRequest(text: output.recommendation, limit: AdvisorPolicy.answerLimit)]
+                + output.points.prefix(3).map { TightenRequest(text: $0, limit: AdvisorPolicy.pointLimit) }
+                + (title.map { [AdvisorPolicy.titleRequest($0, kind: .direction)] } ?? [])
+        )
         update(id) {
-            if let title = output.title, !title.isEmpty { $0.title = title }
-            $0.recommendation = output.recommendation
-            $0.reasoning = output.why
+            if title != nil, let last = lines.last { $0.title = last }
+            $0.recommendation = lines[0]
+            $0.points = Array(lines[1..<(1 + pointCount)])
             $0.options = output.options
             $0.askNext = output.ask_next
             $0.unknowns = output.unknowns.isEmpty ? nil : output.unknowns
         }
         finish(id, failure: nil)
+    }
+
+    /// Rewrites only the lines that break their limit, once, with the cheap model.
+    /// If that fails the original stays, because a long answer beats no answer.
+    private func tightened(_ requests: [TightenRequest]) async -> [String] {
+        var lines = requests.map(\.text)
+        let targets = requests.indices.filter { AdvisorPolicy.needsTightening(requests[$0]) }
+        guard !targets.isEmpty else { return lines }
+        let call = ClaudeCall(
+            job: .tighten,
+            model: "haiku",
+            effort: "low",
+            system: Prompts.tightenSystem,
+            schema: Prompts.tightenSchema,
+            timeout: 30,
+            prompt: Prompts.tightenPrompt(targets.map { requests[$0] })
+        )
+        let result = await ClaudeRunner.run(call)
+        guard let data = result.structured,
+              let output = try? JSONDecoder().decode(TightenOutput.self, from: data),
+              output.items.count == targets.count else { return lines }
+        for (index, rewritten) in zip(targets, output.items) {
+            lines[index] = AdvisorPolicy.pick(requests[index], rewritten: rewritten)
+        }
+        return lines
     }
 
     private func webCall(question: String) -> ClaudeCall {
@@ -512,6 +551,7 @@ final class AdvisorEngine: ObservableObject {
             lines.append(card.note)
             if let recommendation = card.recommendation { lines.append("- 推奨：\(recommendation)") }
             if let reasoning = card.reasoning { lines.append("- 理由：\(reasoning)") }
+            for point in card.points ?? [] { lines.append("- 補足：\(point)") }
             for option in card.options { lines.append("- 案「\(option.name)」：\(option.good) ／ \(option.bad)") }
             if let ask = card.askNext, !ask.isEmpty { lines.append("- 聞くとよいこと：\(ask)") }
             if let unknowns = card.unknowns { lines.append("- 未確認：\(unknowns)") }

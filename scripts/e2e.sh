@@ -43,7 +43,7 @@ echo "--- カード"
 python3 - "${FOLDER}/advisor-cards.json" <<'EOF'
 import json, sys
 for c in json.load(open(sys.argv[1])):
-    print(json.dumps({k: c.get(k) for k in ["kind","requested","title","note","state","startedAutomatically","confidence","searchQuestions","conclusion","recommendation","reasoning","askNext","unknowns","options","sources","failure"]}, ensure_ascii=False, indent=1))
+    print(json.dumps({k: c.get(k) for k in ["kind","requested","title","note","state","startedAutomatically","confidence","searchQuestions","conclusion","recommendation","points","reasoning","askNext","unknowns","options","sources","failure"]}, ensure_ascii=False, indent=1))
 EOF
 echo "--- 調査へ送った問い"
 cat "${FOLDER}/advisor-queries.jsonl" 2>/dev/null
