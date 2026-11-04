@@ -19,6 +19,9 @@ struct AppConfig: Decodable {
         claudeCommand = command.isEmpty ? AppConfig.defaultCommand : command
     }
 
+    static let transcriberBundleID = "com.minorun365.LiveDictation"
+    static let transcriberPage = "https://github.com/minorun365/live-dictation"
+
     static func load() -> AppConfig {
         let file = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/LiveAdvisor/config.json")

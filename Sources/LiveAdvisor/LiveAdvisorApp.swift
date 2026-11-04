@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let flag = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(flag + 1) {
             let path = arguments[flag + 1]
+            engine.checkTranscriber()
             panel.setFrameOrigin(NSPoint(x: -4000, y: 200))
             panel.orderFrontRegardless()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in

@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The three layers in one place: a watcher that spends nothing, Haiku picks what matters,
 /// Opus answers the few things that earn it.
@@ -18,6 +18,8 @@ final class AdvisorEngine: ObservableObject {
     @Published private(set) var hasUnread = false
     /// Bumped on every open so the list can return to the newest card.
     @Published private(set) var openCount = 0
+    /// Without the transcriber nothing ever starts, so the panel says so instead of waiting silently.
+    @Published private(set) var transcriberMissing = false
     /// macOS hides a window from screenshots and screen sharing with one switch, so this opens both.
     @Published var allowsCapture = false
 
@@ -122,8 +124,17 @@ final class AdvisorEngine: ObservableObject {
 
     // MARK: User actions
 
+    func checkTranscriber() {
+        var found = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AppConfig.transcriberBundleID) != nil
+        #if DEBUG
+        if environment["LIVE_ADVISOR_NO_TRANSCRIBER"] == "1" { found = false }
+        #endif
+        transcriberMissing = !found
+    }
+
     func panelOpened() {
         panelVisible = true
+        checkTranscriber()
         panelOpenedAt = Date()
         openCount += 1
         hasUnread = false

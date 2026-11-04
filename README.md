@@ -19,7 +19,7 @@
 ## 動作環境
 
 - macOS 26.4 以降の Apple Silicon Mac
-- [文字起こしちゃん](https://github.com/minorun365/live-dictation)
+- [文字起こしちゃん](https://github.com/minorun365/live-dictation)（先に入れます。無い間はパネルに導入ページへの案内が出ます）
 - ログイン済みの [Claude Code](https://code.claude.com/docs)（`claude` コマンド）
 - ビルドに Xcode（Swift 6.2 以降）
 
@@ -35,9 +35,10 @@ https://github.com/minorun365/live-advisor これ入れといて
 
 1. このリポジトリを clone します
 2. `claude --version` が通ることを確かめます。通らなければ、Claude Code の導入とログインを利用者に案内して止まります
-3. `scripts/install.sh` を実行します。テストのあと、`~/Applications/助言さん.app` へ入れて起動します
-4. 次回からログイン時に自動で起動します
-5. 利用者に、次の録音から自動で動くことと、下の「会議の内容の送り先」を伝えます
+3. `mdfind "kMDItemCFBundleIdentifier == 'com.minorun365.LiveDictation'"` で文字起こしちゃんを探します。見つからなければ、助言さんだけでは動かないことを利用者に伝え、了承を得てから [文字起こしちゃんの手順](https://github.com/minorun365/live-dictation#インストール) で入れます。初回の「このまま開く」と権限の許可は利用者の操作なので、案内して待ちます
+4. `scripts/install.sh` を実行します。テストのあと、`~/Applications/助言さん.app` へ入れて起動します
+5. 次回からログイン時に自動で起動します
+6. 利用者に、次の録音から自動で動くことと、下の「会議の内容の送り先」を伝えます
 
 ## 会議の内容の送り先
 

@@ -55,7 +55,7 @@ struct AdvisorPanel: View {
     }
 
     private var hasBody: Bool {
-        !feed.isEmpty || engine.phase == .paused
+        !feed.isEmpty || engine.phase == .paused || engine.transcriberMissing
     }
 
     private var header: some View {
@@ -100,6 +100,7 @@ struct AdvisorPanel: View {
 
     private var statusText: String {
         if let problem = engine.problem { return problem }
+        if engine.transcriberMissing { return "準備が必要です" }
         if engine.allowsCapture { return "画面共有にも映ります" }
         switch engine.phase {
         case .idle: return "待機中"
@@ -113,6 +114,9 @@ struct AdvisorPanel: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: 0).id("top")
             VStack(spacing: 8) {
+                if engine.transcriberMissing {
+                    TranscriberRow()
+                }
                 if engine.phase == .paused {
                     ResumeRow { engine.enableForThisMeeting() }
                 }
@@ -123,6 +127,32 @@ struct AdvisorPanel: View {
             .padding(10)
             .animation(.snappy(duration: 0.25), value: feed.map(\.id))
         }
+    }
+}
+
+/// Everything here starts from the transcriber's recording, so its absence comes first.
+private struct TranscriberRow: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("文字起こしちゃんが必要です")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("その文字起こしを読んで動きます")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Palette.secondary)
+            }
+            Spacer(minLength: 8)
+            if let url = URL(string: AppConfig.transcriberPage) {
+                Link(destination: url) {
+                    Text("導入ページ")
+                }
+                .buttonStyle(QuietButtonStyle())
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.soft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
