@@ -6,9 +6,9 @@ private enum Palette {
     static let hairline = Color(red: 0.92, green: 0.92, blue: 0.94)
     static let soft = Color(red: 0.965, green: 0.97, blue: 0.98)
     static let accent = Color(red: 0.10, green: 0.36, blue: 0.87)
-    static let question = Color(red: 0.059, green: 0.247, blue: 0.651)
-    static let answer = Color(red: 0.227, green: 0.231, blue: 0.259)
-    static let quiet = Color(red: 0.357, green: 0.365, blue: 0.40)
+    static let question = Color(red: 0.110, green: 0.110, blue: 0.129)
+    static let answer = Color(red: 0.420, green: 0.427, blue: 0.463)
+    static let quiet = Color(red: 0.420, green: 0.427, blue: 0.463)
     static let unread = Color(red: 1.0, green: 0.975, blue: 0.82)
     static let unreadEdge = Color(red: 0.96, green: 0.90, blue: 0.62)
 }
@@ -301,7 +301,7 @@ private struct FeedCard: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(card.title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Palette.question)
                     .fixedSize(horizontal: false, vertical: true)
                 if let answer {
