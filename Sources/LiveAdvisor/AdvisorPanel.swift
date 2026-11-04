@@ -62,7 +62,7 @@ struct AdvisorPanel: View {
                 .interpolation(.high)
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text("助言くん")
+                Text("助言さん")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                 Text(statusText)

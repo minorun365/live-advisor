@@ -44,7 +44,7 @@ def main() -> int:
     def write(kind, payload):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with open(path, "a", encoding="utf-8") as f:
-            # 本体と同じくスペースなしで書く。助言くんはこの形のバイト列で確定行を絞り込む
+            # 本体と同じくスペースなしで書く。助言さんはこの形のバイト列で確定行を絞り込む
             f.write(json.dumps({"type": kind, "timestamp": stamp, "payload": payload}, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     write("session_started", {"recognizer": "replay"})

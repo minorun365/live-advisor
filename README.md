@@ -1,8 +1,8 @@
-# 助言くん
+# 助言さん
 
-助言くんは、[文字起こしちゃん](https://github.com/minorun365/live-dictation)の文字起こしを読み、会議中に調査結果と議論の進め方の提案をメニューバーへ出す Mac アプリです。文字起こしちゃんの録音が始まると、すべての会議で自動で動きます。
+助言さんは、[文字起こしちゃん](https://github.com/minorun365/live-dictation)の文字起こしを読み、会議中に調査結果と議論の進め方の提案をメニューバーへ出す Mac アプリです。文字起こしちゃんの録音が始まると、すべての会議で自動で動きます。
 
-![助言くんのパネル](docs/images/panel.png)
+![助言さんのパネル](docs/images/panel.png)
 
 ## 主な機能
 
@@ -31,7 +31,7 @@ https://github.com/minorun365/live-advisor これ入れといて
 
 1. このリポジトリを clone します
 2. `claude --version` が通ることを確かめます。通らなければ、Claude Code の導入とログインを利用者に案内して止まります
-3. `scripts/install.sh` を実行します。テストのあと、`~/Applications/助言くん.app` へ入れて起動します
+3. `scripts/install.sh` を実行します。テストのあと、`~/Applications/助言さん.app` へ入れて起動します
 4. 次回からログイン時に自動で起動します
 5. 利用者に、次の録音から自動で動くことと、下の「会議の内容の送り先」を伝えます
 

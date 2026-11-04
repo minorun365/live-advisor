@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="助言くん"
+APP_NAME="助言さん"
 EXECUTABLE_NAME="LiveAdvisor"
 CONFIG="${1:-release}"
 BUILD_DIR="${PROJECT_DIR}/dist"

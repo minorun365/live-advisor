@@ -14,7 +14,7 @@ touch "${LOG}"; BEFORE=$(wc -l < "${LOG}")
 LIVE_ADVISOR_FAST=1 \
 LIVE_ADVISOR_PRESS_DIRECTION=1 \
 LIVE_ADVISOR_SESSIONS_ROOT="${ROOT}" \
-    "${PROJECT_DIR}/dist/助言くん.app/Contents/MacOS/助言くん" &
+    "${PROJECT_DIR}/dist/助言さん.app/Contents/MacOS/助言さん" &
 APP=$!
 sleep 2
 

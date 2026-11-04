@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePanel)
-        statusItem.button?.toolTip = "助言くん"
+        statusItem.button?.toolTip = "助言さん"
         Publishers.CombineLatest(engine.$phase, engine.$hasUnread)
             .sink { [weak self] phase, unread in
                 let state = AdvisorPolicy.menuBarState(isRunning: phase == .running, hasUnread: unread)

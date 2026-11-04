@@ -437,7 +437,7 @@ final class AdvisorEngine: ObservableObject {
         guard let folder else { return }
         let visible = cards.filter { !$0.dismissed }
         guard !visible.isEmpty else { return }
-        var lines = ["# 助言くんの記録", "", "会議中に AI が提案した内容で、決定事項ではない。", ""]
+        var lines = ["# 助言さんの記録", "", "会議中に AI が提案した内容で、決定事項ではない。", ""]
         if !memo.isEmpty { lines += ["## 要点メモ", "", memo, ""] }
         for card in visible {
             lines.append("## [\(card.kind.label)] \(card.title)")

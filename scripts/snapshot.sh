@@ -9,6 +9,6 @@ EMPTY="$(mktemp -d)"
 
 "${PROJECT_DIR}/scripts/build-app.sh" debug >/dev/null
 LIVE_ADVISOR_SESSIONS_ROOT="${EMPTY}" \
-    "${PROJECT_DIR}/dist/助言くん.app/Contents/MacOS/助言くん" --fixture --snapshot "${OUTPUT}"
+    "${PROJECT_DIR}/dist/助言さん.app/Contents/MacOS/助言さん" --fixture --snapshot "${OUTPUT}"
 rm -rf "${EMPTY}"
 ls -l "${OUTPUT}"

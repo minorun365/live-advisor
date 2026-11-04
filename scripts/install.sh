@@ -3,16 +3,16 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="${HOME}/Applications/助言くん.app"
+DEST="${HOME}/Applications/助言さん.app"
 
 "${PROJECT_DIR}/scripts/test.sh"
 "${PROJECT_DIR}/scripts/build-app.sh" release >/dev/null
 
-pkill -x "助言くん" 2>/dev/null || true
+pkill -x "助言さん" 2>/dev/null || true
 sleep 1
 mkdir -p "${HOME}/Applications"
 rm -rf "${DEST}"
-ditto "${PROJECT_DIR}/dist/助言くん.app" "${DEST}"
+ditto "${PROJECT_DIR}/dist/助言さん.app" "${DEST}"
 open "${DEST}"
 sleep 2
-pgrep -x "助言くん" >/dev/null && echo "起動しました: ${DEST}"
+pgrep -x "助言さん" >/dev/null && echo "起動しました: ${DEST}"
