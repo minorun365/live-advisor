@@ -6,6 +6,9 @@ private enum Palette {
     static let hairline = Color(red: 0.92, green: 0.92, blue: 0.94)
     static let soft = Color(red: 0.965, green: 0.97, blue: 0.98)
     static let accent = Color(red: 0.10, green: 0.36, blue: 0.87)
+    static let question = Color(red: 0.059, green: 0.247, blue: 0.651)
+    static let answer = Color(red: 0.227, green: 0.231, blue: 0.259)
+    static let quiet = Color(red: 0.357, green: 0.365, blue: 0.40)
     static let unread = Color(red: 1.0, green: 0.975, blue: 0.82)
     static let unreadEdge = Color(red: 0.96, green: 0.90, blue: 0.62)
 }
@@ -274,7 +277,7 @@ private struct FeedCard: View {
         HStack(spacing: 8) {
             Text(card.title)
                 .font(.system(size: 13))
-                .foregroundStyle(Palette.ink.opacity(0.75))
+                .foregroundStyle(Palette.quiet)
                 .lineLimit(1)
             Spacer(minLength: 0)
             if card.canRun {
@@ -299,12 +302,12 @@ private struct FeedCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(card.title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Palette.ink)
+                    .foregroundStyle(Palette.question)
                     .fixedSize(horizontal: false, vertical: true)
                 if let answer {
                     Text(answer)
                         .font(.system(size: 14))
-                        .foregroundStyle(Palette.ink.opacity(0.82))
+                        .foregroundStyle(Palette.answer)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -407,7 +410,7 @@ private struct BodyText: View {
     var body: some View {
         Text(text)
             .font(.system(size: 12.5))
-            .foregroundStyle(Palette.ink.opacity(0.82))
+            .foregroundStyle(Palette.quiet)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
     }
