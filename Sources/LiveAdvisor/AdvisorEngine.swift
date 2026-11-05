@@ -36,6 +36,18 @@ final class AdvisorEngine: ObservableObject {
         return policy
     }()
 
+    /// The person's own notes. An environment override lets the end-to-end test point at made-up notes.
+    private lazy var contextFolders: [String] = AppConfig.existingFolders(
+        environment["LIVE_ADVISOR_CONTEXT_FOLDERS"].map { $0.split(separator: ":").map(String.init) }
+            ?? AppConfig.load().contextFolders,
+        home: home.path
+    )
+    /// What the notes say about this meeting's history, handed to every later proposal.
+    private var background: String?
+    private var historyAttempts = 0
+    private var lastHistoryAt: Date?
+    private var historyRunning = false
+
     private var watcher: SessionWatcher?
     private var ticker: Timer?
     private var folder: URL?
@@ -83,6 +95,9 @@ final class AdvisorEngine: ObservableObject {
         triggerPending = false
         panelOpenPending = false
         automaticUsed = 0
+        background = nil
+        historyAttempts = 0
+        lastHistoryAt = nil
         queue = []
         cards = []
         problem = nil
@@ -248,6 +263,7 @@ final class AdvisorEngine: ObservableObject {
             if !takeawayLines.isEmpty, !output.cards.contains(where: { $0.kind == .takeaway }) {
                 startLatestResearchCandidate()
             }
+            startHistoryIfDue()
             save()
             // The last judge can land after the meeting ended.
             if phase == .finished { writeSummary() }
@@ -305,6 +321,78 @@ final class AdvisorEngine: ObservableObject {
             $0.kind == .direction && ($0.state == .running || $0.state == .done)
                 && Date().timeIntervalSince($0.createdAt) < 600
         }
+    }
+
+    // MARK: Background from the person's notes
+
+    /// Once after the first judge, and once more five minutes later if the names were not out yet.
+    /// It runs beside the job queue: it reads files, not the web, and the answer matters most early.
+    private func startHistoryIfDue() {
+        guard !contextFolders.isEmpty, background == nil, !historyRunning,
+              historyAttempts < Self.historyAttemptLimit,
+              lastHistoryAt.map({ Date().timeIntervalSince($0) >= Self.historyRetryGap }) ?? true else { return }
+        historyAttempts += 1
+        lastHistoryAt = Date()
+        historyRunning = true
+        let call = ClaudeCall(
+            job: .history,
+            model: "sonnet",
+            effort: "medium",
+            system: Prompts.historySystem,
+            schema: Prompts.historySchema,
+            tools: ["Read", "Grep", "Glob"],
+            budgetUSD: 0.5,
+            folders: contextFolders,
+            timeout: 180,
+            prompt: Prompts.historyPrompt(
+                folders: contextFolders,
+                memo: memo,
+                transcript: Self.tail(transcript.map(\.rendered).joined(separator: "\n"), limit: 6000)
+            )
+        )
+        Task {
+            let result = await ClaudeRunner.run(call)
+            historyRunning = false
+            guard let data = result.structured,
+                  let output = try? JSONDecoder().decode(HistoryOutput.self, from: data) else {
+                report(result.failure)
+                return
+            }
+            // Nothing found is not news. The card only appears when there is history to show.
+            guard output.found, !output.conclusion.isEmpty else { return }
+            await addHistoryCard(output)
+            save()
+            if phase == .finished { writeSummary() }
+        }
+    }
+
+    private func addHistoryCard(_ output: HistoryOutput) async {
+        let pointCount = min(output.points.count, 3)
+        let lines = await tightened(
+            [TightenRequest(text: output.conclusion, limit: AdvisorPolicy.answerLimit),
+             AdvisorPolicy.titleRequest(output.title, kind: .history)]
+                + output.points.prefix(3).map { TightenRequest(text: $0, limit: AdvisorPolicy.pointLimit) }
+        )
+        let files = Array(output.files.filter { $0.hasPrefix("/") }.prefix(5))
+        background = output.background
+        recordContext(files)
+        var card = Card(kind: .history, title: lines[1], note: "", research: false, confidence: 1, createdAt: Date())
+        card.conclusion = lines[0]
+        card.points = Array(lines[2..<(2 + pointCount)])
+        card.askNext = output.ask_next.isEmpty ? nil : output.ask_next
+        card.sources = files.map { CardSource(title: Self.shortPath($0), url: URL(fileURLWithPath: $0).absoluteString) }
+        card.state = .done
+        card.finishedAt = Date()
+        cards.insert(card, at: 0)
+        if !panelVisible { hasUnread = true }
+    }
+
+    private static let historyAttemptLimit = 2
+    private static let historyRetryGap: TimeInterval = 300
+
+    /// The last two parts of a path: enough to recognise the note without a long line.
+    private static func shortPath(_ path: String) -> String {
+        path.split(separator: "/").suffix(2).joined(separator: "/")
     }
 
     // MARK: Opus jobs
@@ -385,7 +473,7 @@ final class AdvisorEngine: ObservableObject {
             schema: Prompts.directionSchema,
             budgetUSD: 0.15,
             timeout: 60,
-            prompt: Prompts.directionPrompt(card: card, memo: memo, transcript: recent, findings: findings)
+            prompt: Prompts.directionPrompt(card: card, memo: memo, transcript: recent, findings: findings, background: background)
         )
         let result = await ClaudeRunner.run(call)
         guard let data = result.structured, let output = try? JSONDecoder().decode(DirectionOutput.self, from: data) else {
@@ -408,7 +496,8 @@ final class AdvisorEngine: ObservableObject {
             prompt: Prompts.requestPrompt(
                 memo: memo,
                 transcript: Self.tail(transcript.map(\.rendered).joined(separator: "\n"), limit: 8000),
-                findings: findings(excluding: card.id)
+                findings: findings(excluding: card.id),
+                background: background
             )
         )
         let result = await ClaudeRunner.run(call)
@@ -421,7 +510,8 @@ final class AdvisorEngine: ObservableObject {
 
     private func findings(excluding id: String) -> [String] {
         cards.compactMap { other in
-            guard other.id != id, other.state == .done, let conclusion = other.conclusion else { return nil }
+            // The history card reaches proposals through `background`, with more than its short lines.
+            guard other.id != id, other.kind != .history, other.state == .done, let conclusion = other.conclusion else { return nil }
             return "問い：\(other.title)\n結論：\(conclusion)"
         }
     }
@@ -529,6 +619,22 @@ final class AdvisorEngine: ObservableObject {
         guard var line = try? JSONSerialization.data(withJSONObject: record) else { return }
         line.append(0x0A)
         let file = folder.appendingPathComponent("advisor-queries.jsonl")
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: line)
+            try? handle.close()
+        } else {
+            try? line.write(to: file)
+        }
+    }
+
+    /// Which notes the background stage relied on. Paths only, beside the web questions.
+    private func recordContext(_ files: [String]) {
+        guard let folder, !files.isEmpty else { return }
+        let record: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "files": files]
+        guard var line = try? JSONSerialization.data(withJSONObject: record, options: [.withoutEscapingSlashes]) else { return }
+        line.append(0x0A)
+        let file = folder.appendingPathComponent("advisor-context.jsonl")
         if let handle = try? FileHandle(forWritingTo: file) {
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: line)

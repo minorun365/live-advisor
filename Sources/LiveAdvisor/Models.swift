@@ -18,10 +18,11 @@ struct TranscriptLine: Equatable {
 }
 
 enum CardKind: String, Codable {
-    case question, takeaway, risk, direction
+    case question, takeaway, risk, direction, history
 
     var label: String {
         switch self {
+        case .history: return "経緯"
         case .question: return "相手の質問"
         case .takeaway: return "持ち帰り"
         case .risk: return "食い違い"
@@ -125,4 +126,15 @@ struct DirectionOutput: Decodable {
     let options: [DirectionOption]
     let ask_next: String
     let unknowns: String
+}
+
+/// What the background stage found in the person's own notes.
+struct HistoryOutput: Decodable {
+    let found: Bool
+    let title: String
+    let conclusion: String
+    let points: [String]
+    let ask_next: String
+    let background: String
+    let files: [String]
 }

@@ -56,7 +56,23 @@ enum Fixture {
             createdAt: Date().addingTimeInterval(-500)
         )
         takeaway.readAt = Date()
-        return [direction, answer, candidate, takeaway]
+
+        var history = Card(
+            kind: .history,
+            title: "前回、何を決めた？",
+            note: "",
+            research: false,
+            confidence: 1,
+            createdAt: Date().addingTimeInterval(-600)
+        )
+        history.finishedAt = Date().addingTimeInterval(-600)
+        history.state = .done
+        history.readAt = Date()
+        history.conclusion = "更新先は PostgreSQL 17 が第一候補"
+        history.points = ["空くのは火曜の深夜2〜4時", "こちらの宿題：止められる時間の目安", "先方の宿題：検証環境の用意"]
+        history.askNext = "検証環境は用意できそうですか"
+        history.sources = [CardSource(title: "soramame-space/notes-2026-10-20.md", url: "file:///tmp/notes-2026-10-20.md")]
+        return [direction, answer, candidate, takeaway, history]
     }
 }
 #endif

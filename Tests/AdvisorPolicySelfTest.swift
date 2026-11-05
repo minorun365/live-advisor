@@ -95,6 +95,16 @@ struct AdvisorPolicySelfTest {
         try check(resolve("missing") == nil, "無ければ nil")
         try check(resolve("/opt/tools/my-claude") == "/opt/tools/my-claude", "絶対パスはそのまま")
         try check(resolve("~/bin/my-claude") == "/home/bin/my-claude", "チルダを展開する")
+
+        try check(AppConfig.parse(Data("{}".utf8)).contextFolders.isEmpty, "記録フォルダの既定は空（経緯の段は動かない）")
+        try check(AppConfig.parse(Data("{\"contextFolders\":[\"~/notes\",\"\"]}".utf8)).contextFolders == ["~/notes"], "空の行は捨てる")
+        try check(AppConfig.parse(Data("{\"contextFolders\":\"~/notes\"}".utf8)).claudeCommand == "claude", "型違いでもほかの設定は生きる")
+        let folders: Set<String> = ["/home/notes", "/srv/records"]
+        let existing = AppConfig.existingFolders(["~/notes", "/srv/records", "/gone", "relative"], home: "/home", isDirectory: folders.contains)
+        try check(existing == ["/home/notes", "/srv/records"], "チルダを展開し、無いフォルダと相対パスを落とす")
+        try check(!AdvisorPolicy.shouldRunAutomatically(
+            JudgeOutput.Item(kind: .history, title: "前回何を決めた？", note: "", research: true, confidence: 1, declared_by_self: true, asked_by_others: true, search_questions: []),
+            usedAutomatic: 0), "経緯は判定からは動かさない")
     }
 
     static func tailer() throws {

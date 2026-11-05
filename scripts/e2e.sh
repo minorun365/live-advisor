@@ -15,6 +15,7 @@ LIVE_ADVISOR_FAST=1 \
 LIVE_ADVISOR_PRESS_DIRECTION=1 \
 LIVE_ADVISOR_PRESS_NOW=1 \
 LIVE_ADVISOR_SESSIONS_ROOT="${ROOT}" \
+LIVE_ADVISOR_CONTEXT_FOLDERS="${PROJECT_DIR}/scripts/fixtures/records" \
     "${PROJECT_DIR}/dist/助言さん.app/Contents/MacOS/助言さん" &
 APP=$!
 sleep 2
@@ -47,5 +48,7 @@ for c in json.load(open(sys.argv[1])):
 EOF
 echo "--- 調査へ送った問い"
 cat "${FOLDER}/advisor-queries.jsonl" 2>/dev/null
+echo "--- 経緯の段が読んだ記録"
+cat "${FOLDER}/advisor-context.jsonl" 2>/dev/null
 echo "--- 消費"
 tail -n +"$((BEFORE + 1))" "${LOG}"

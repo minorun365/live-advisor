@@ -56,7 +56,7 @@ enum Prompts {
 
     static let directionSystem = """
     会議で詰まっている論点について、本人が次に議論をどちらへ進めるとよいかを提案する。
-    論点を整理するだけで終わらせず、推奨を1つに決める。根拠は会議の発言と調査結果に限り、無い事実を足さない。
+    論点を整理するだけで終わらせず、推奨を1つに決める。根拠は会議の発言、調査結果、手元の記録にある経緯に限り、無い事実を足さない。
     \(plainWords)
     recommendation は進める方向を25字以内で言い切る。points はそう判断した理由を最大3個、各25字以内の短い文で書く。
     options は比較した案を2〜3個。name は12字以内、good と bad は各25字以内。
@@ -70,7 +70,7 @@ enum Prompts {
     static let requestSystem = """
     会議のここまでの文字起こしを読み、本人がいま何をするとよいかを1つに決めて伝える。本人は会議の最中で、数秒しか読めない。
     まだ話が始まったばかりなら、話を前へ進めるために本人が最初に聞くとよいことを選ぶ。話が詰まっているなら、詰まりをほどく一手を選ぶ。
-    根拠は会議の発言と調査結果に限り、無い事実を足さない。
+    根拠は会議の発言、調査結果、手元の記録にある経緯に限り、無い事実を足さない。
     \(plainWords)
     title は何についての提案かを、18字以内で「？」で終わる短い問いで書く（例：「更新はいつ止める？」）。recommendation はいまやることを25字以内で言い切る。points はその理由を最大3個、各25字以内の短い文で書く。
     options は迷う案があるときだけ2〜3個で、無ければ空配列。name は12字以内、good と bad は各25字以内。
@@ -80,6 +80,39 @@ enum Prompts {
     static let requestSchema = #"""
     {"type":"object","properties":{"title":{"type":"string"},"recommendation":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["title","recommendation","points","options","ask_next","unknowns"],"additionalProperties":false}
     """#
+
+    static let historySystem = """
+    会議の文字起こしを読み、本人の手元の記録フォルダから、この会議と同じ相手・同じ案件の過去の経緯を探して伝える。本人は会議の最中で、数秒しか読めない。
+    探し方：文字起こしに出た社名・人名・製品名・話題を手がかりに、Grep と Glob で記録フォルダを探す。文字起こしは音声認識なので固有名詞が化けていることがある。読みの近い漢字、カタカナ、英字の表記も試す。案件のフォルダが見つかったら、README と、日付の新しい議事録・メモを優先して読む。読むファイルは10本までにする。
+    同じ相手・同じ案件だと言える記録が無ければ found を false にし、ほかの欄は空にする。話題が似ているだけの別の案件を当てはめない。
+    記録に書かれていることだけを使い、無い事実を足さない。決まったことと、案として出ただけのことを分ける。
+    \(plainWords)
+    title は何の経緯かを18字以内の「？」で終わる問いで書く（例：「前回、何を決めた？」）。conclusion は前回までの到達点を25字以内で言い切る。points は前回決まったこと、残っている宿題、相手の関心を最大3個、各25字以内の短い文で書く。
+    ask_next は記録を踏まえて、今日この場で相手へそのまま聞ける1問を40字以内。background は会議の提案に使う経緯の要約を400字以内で、日付と根拠のファイル名を添えて書く。files は根拠にしたファイルを絶対パスで1〜5本。
+    """
+
+    static let historySchema = #"""
+    {"type":"object","properties":{"found":{"type":"boolean"},"title":{"type":"string"},"conclusion":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"ask_next":{"type":"string"},"background":{"type":"string"},"files":{"type":"array","items":{"type":"string"}}},"required":["found","title","conclusion","points","ask_next","background","files"],"additionalProperties":false}
+    """#
+
+    static func historyPrompt(folders: [String], memo: String, transcript: String) -> String {
+        """
+        記録フォルダ:
+        \(folders.map { "- \($0)" }.joined(separator: "\n"))
+
+        会議の要点メモ:
+        \(memo.isEmpty ? "（まだ無い）" : memo)
+
+        ここまでの発言:
+        \(transcript)
+        """
+    }
+
+    /// Kept apart from the web findings: these come from the person's own notes, not from public pages.
+    private static func backgroundBlock(_ background: String?) -> String {
+        guard let background, !background.isEmpty else { return "" }
+        return "\n\n手元の記録にある、これまでの経緯（記録の内容であり、今日の会議の発言ではない）:\n\(background)"
+    }
 
     static let tightenSystem = """
     会議の合間に一目で読む短文を書き直す。意味と固有名詞、数字、コマンド名は変えず、理由や前置きを削る。
@@ -97,7 +130,7 @@ enum Prompts {
         }.joined(separator: "\n")
     }
 
-    static func requestPrompt(memo: String, transcript: String, findings: [String]) -> String {
+    static func requestPrompt(memo: String, transcript: String, findings: [String], background: String? = nil) -> String {
         """
         会議の要点メモ:
         \(memo.isEmpty ? "（まだ無い）" : memo)
@@ -106,11 +139,11 @@ enum Prompts {
         \(transcript)
 
         公開情報の調査結果:
-        \(findings.isEmpty ? "（調査なし）" : findings.joined(separator: "\n"))
+        \(findings.isEmpty ? "（調査なし）" : findings.joined(separator: "\n"))\(backgroundBlock(background))
         """
     }
 
-    static func directionPrompt(card: Card, memo: String, transcript: String, findings: [String]) -> String {
+    static func directionPrompt(card: Card, memo: String, transcript: String, findings: [String], background: String? = nil) -> String {
         """
         論点:
         \(card.title)（\(card.note)）
@@ -122,7 +155,7 @@ enum Prompts {
         \(transcript)
 
         公開情報の調査結果:
-        \(findings.isEmpty ? "（調査なし）" : findings.joined(separator: "\n"))
+        \(findings.isEmpty ? "（調査なし）" : findings.joined(separator: "\n"))\(backgroundBlock(background))
         """
     }
 }

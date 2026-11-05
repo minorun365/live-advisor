@@ -1,7 +1,7 @@
 import Foundation
 
 struct ClaudeCall {
-    enum Job: String { case judge, research, direction, tighten }
+    enum Job: String { case judge, research, direction, tighten, history }
 
     let job: Job
     let model: String
@@ -10,6 +10,8 @@ struct ClaudeCall {
     let schema: String
     var tools: [String] = []
     var budgetUSD: Double?
+    /// Folders the call may read. The first is also where it runs. Empty keeps the empty workspace.
+    var folders: [String] = []
     let timeout: TimeInterval
     let prompt: String
 }
@@ -24,6 +26,7 @@ struct ClaudeResult {
 /// Runs Claude Code headless.
 ///
 /// Settings, skills, MCP and tools are all left out, so a call carries only its own prompt.
+/// Only the background stage gets folders, and only read-only tools to look at them.
 /// Each call starts fresh so the conversation can never grow.
 enum ClaudeRunner {
     static let command = AppConfig.load().claudeCommand
@@ -44,6 +47,9 @@ enum ClaudeRunner {
         ]
         if !call.tools.isEmpty {
             arguments += ["--allowedTools", call.tools.joined(separator: ",")]
+        }
+        for folder in call.folders.dropFirst() {
+            arguments += ["--add-dir", folder]
         }
         if let budget = call.budgetUSD {
             arguments += ["--max-budget-usd", String(budget)]
@@ -78,7 +84,7 @@ enum ClaudeRunner {
         ]
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("live-advisor-empty", isDirectory: true)
         try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        process.currentDirectoryURL = workspace
+        process.currentDirectoryURL = call.folders.first.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? workspace
 
         let input = Pipe(), output = Pipe(), errors = Pipe()
         process.standardInput = input

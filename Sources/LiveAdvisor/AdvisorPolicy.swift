@@ -79,7 +79,7 @@ struct AdvisorPolicy {
         case .takeaway: return item.declared_by_self && item.research
         case .question: return item.asked_by_others && item.research && item.confidence >= automaticConfidence
         case .direction: return item.confidence >= automaticConfidence
-        case .risk: return false
+        case .risk, .history: return false
         }
     }
 
