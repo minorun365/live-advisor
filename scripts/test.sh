@@ -15,6 +15,7 @@ swiftc \
     "${SOURCES}/EventTailer.swift" \
     "${SOURCES}/AdvisorPolicy.swift" \
     "${SOURCES}/AppConfig.swift" \
+    "${SOURCES}/ClaudeFailure.swift" \
     "${PROJECT_DIR}/Tests/AdvisorPolicySelfTest.swift" \
     -o "${TEST_BINARY}"
 

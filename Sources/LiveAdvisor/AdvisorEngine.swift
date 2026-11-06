@@ -603,6 +603,7 @@ final class AdvisorEngine: ObservableObject {
         case .notFound: return "claude コマンドが見つかりません"
         case .notLoggedIn: return "Claude Code にログインしてください"
         case .limitReached: return "Claude の利用上限に達した可能性があります"
+        case .unavailable: return "Claude に一時的につながりません。次の判定でやり直します"
         default: return "判定を呼び出せませんでした"
         }
     }

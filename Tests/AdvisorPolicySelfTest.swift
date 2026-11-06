@@ -11,7 +11,27 @@ struct AdvisorPolicySelfTest {
         try feed()
         try menuBar()
         try tightening()
+        try failures()
         print("AdvisorPolicySelfTest OK")
+    }
+
+    static func failures() throws {
+        // Every result Claude Code prints carries these counters, error or not.
+        let counters: [String: Any] = ["subagent_stats": ["refused": ["depth_limit": 0, "concurrency_limit": 0, "budget": 0]]]
+        func json(_ extra: [String: Any]) -> [String: Any] { counters.merging(extra) { $1 } }
+        func classify(_ object: [String: Any]?, stdout: String = "", stderr: String = "", timedOut: Bool = false) -> ClaudeFailure {
+            ClaudeFailure.classify(json: object, stdout: stdout, stderr: stderr, timedOut: timedOut)
+        }
+        try check(classify(json(["is_error": true, "api_error_status": 529, "result": "Overloaded"])) == .unavailable, "混雑は上限額にしない")
+        try check(classify(json(["is_error": true, "api_error_status": 500, "result": "Internal server error"])) == .unavailable, "500は一時的な失敗")
+        try check(classify(json(["is_error": true, "api_error_status": 404, "result": "model not found"])) == .other, "budgetの数え欄だけでは上限額にしない")
+        try check(classify(json(["subtype": "error_max_budget_usd"])) == .budget, "上限額の打ち切りは subtype で見る")
+        try check(classify(json(["is_error": true, "api_error_status": 429, "result": "rate"])) == .limitReached, "429は利用上限")
+        try check(classify(json(["is_error": true, "result": "You've hit your limit · resets 5pm"])) == .limitReached, "利用上限の文面")
+        try check(classify(json(["is_error": true, "result": "Not logged in · Please run /login"])) == .notLoggedIn, "未ログイン")
+        try check(classify(nil, stderr: "fetch failed: network error") == .unavailable, "通信の失敗は一時的")
+        try check(classify(nil, timedOut: true) == .timeout, "時間切れ")
+        try check(ClaudeFailure.unavailable.isTransient && !ClaudeFailure.budget.isTransient, "再試行は一時的な失敗だけ")
     }
 
     static func tightening() throws {

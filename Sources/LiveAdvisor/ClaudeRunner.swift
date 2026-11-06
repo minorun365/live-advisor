@@ -17,7 +17,7 @@ struct ClaudeCall {
 }
 
 struct ClaudeResult {
-    enum Failure: Equatable { case notFound, timeout, notLoggedIn, limitReached, budget, other }
+    typealias Failure = ClaudeFailure
 
     var structured: Data?
     var failure: Failure?
@@ -57,7 +57,16 @@ enum ClaudeRunner {
         return arguments
     }
 
+    /// A hiccup on the service side gets one more try a few seconds later, so a meeting does not lose
+    /// a whole judging cycle to it.
     static func run(_ call: ClaudeCall) async -> ClaudeResult {
+        let first = await runOnce(call)
+        guard first.failure?.isTransient == true else { return first }
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        return await runOnce(call)
+    }
+
+    private static func runOnce(_ call: ClaudeCall) async -> ClaudeResult {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: runBlocking(call))
@@ -124,18 +133,12 @@ enum ClaudeRunner {
             result.structured = data
         }
         if result.structured == nil {
-            let combined = (String(data: outData, encoding: .utf8) ?? "") + (String(data: errData, encoding: .utf8) ?? "")
-            if timedOut {
-                result.failure = .timeout
-            } else if combined.localizedCaseInsensitiveContains("not logged in") || combined.contains("/login") {
-                result.failure = .notLoggedIn
-            } else if combined.localizedCaseInsensitiveContains("budget") {
-                result.failure = .budget
-            } else if combined.localizedCaseInsensitiveContains("limit") {
-                result.failure = .limitReached
-            } else {
-                result.failure = .other
-            }
+            result.failure = ClaudeFailure.classify(
+                json: json,
+                stdout: String(data: outData, encoding: .utf8) ?? "",
+                stderr: String(data: errData, encoding: .utf8) ?? "",
+                timedOut: timedOut
+            )
         }
         UsageLog.write(call: call, seconds: seconds, json: json, status: result.failure.map { "\($0)" } ?? "ok")
         return result
@@ -158,6 +161,9 @@ enum UsageLog {
             "cache_read_tokens": usage?["cache_read_input_tokens"] ?? NSNull(),
             "cache_write_tokens": usage?["cache_creation_input_tokens"] ?? NSNull(),
             "output_tokens": usage?["output_tokens"] ?? NSNull(),
+            // Codes only, never the error text: it can quote the prompt.
+            "api_error_status": json?["api_error_status"] ?? NSNull(),
+            "terminal_reason": json?["terminal_reason"] ?? NSNull(),
             "status": status,
         ]
         guard var line = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) else { return }
