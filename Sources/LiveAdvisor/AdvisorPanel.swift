@@ -98,11 +98,14 @@ struct AdvisorPanel: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.secondary)
                     .frame(width: 24, height: 24)
+                    // A plain button only takes clicks on the drawn dots, so the whole square has to be the shape.
+                    .contentShape(Rectangle())
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .contentShape(Rectangle())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

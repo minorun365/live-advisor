@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: AdvisorWindow!
     private var subscriptions = Set<AnyCancellable>()
     private var contentHeight: CGFloat = 60
+    /// The snapshot draws the panel off screen, so it must not be moved back under the icon.
+    private var isSnapshot = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let arguments = ProcessInfo.processInfo.arguments
@@ -56,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let flag = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(flag + 1) {
             let path = arguments[flag + 1]
             engine.checkTranscriber()
+            isSnapshot = true
             panel.setFrameOrigin(NSPoint(x: -4000, y: 200))
             panel.orderFrontRegardless()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -130,7 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Keeps the top edge under the menu bar icon while the content grows or shrinks.
     private func reposition() {
-        guard panel?.isVisible == true, panel.frame.minX > -1000,
+        // A display left of the main one has negative x, so the position cannot tell the snapshot apart.
+        guard panel?.isVisible == true, !isSnapshot,
               let button = statusItem?.button, let window = button.window, let screen = window.screen else { return }
         let anchor = window.convertToScreen(button.frame)
         let size = NSSize(width: AdvisorPanel.width, height: contentHeight)

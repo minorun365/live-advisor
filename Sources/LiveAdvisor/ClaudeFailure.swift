@@ -26,3 +26,14 @@ enum ClaudeFailure: Equatable {
     /// Worth one quick retry: the service hiccuped, not the request.
     var isTransient: Bool { self == .unavailable }
 }
+
+enum ClaudeOutput {
+    /// `--output-format json` prints one result object, but with verbose on it prints an array of
+    /// every message, with the result object last. Either way, return the result object.
+    static func result(from data: Data) -> [String: Any]? {
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        if let object = parsed as? [String: Any] { return object }
+        guard let messages = parsed as? [[String: Any]] else { return nil }
+        return messages.last(where: { $0["type"] as? String == "result" })
+    }
+}
