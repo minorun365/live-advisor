@@ -32,6 +32,12 @@ struct AdvisorPolicySelfTest {
         try check(classify(nil, stderr: "fetch failed: network error") == .unavailable, "通信の失敗は一時的")
         try check(classify(nil, timedOut: true) == .timeout, "時間切れ")
         try check(ClaudeFailure.unavailable.isTransient && !ClaudeFailure.budget.isTransient, "再試行は一時的な失敗だけ")
+
+        let single = Data(#"{"type":"result","structured_output":{"a":1}}"#.utf8)
+        try check(ClaudeOutput.result(from: single)?["structured_output"] != nil, "1個のオブジェクトの出力を読む")
+        let array = Data(#"[{"type":"system","subtype":"init"},{"type":"assistant"},{"type":"result","structured_output":{"a":1}}]"#.utf8)
+        try check(ClaudeOutput.result(from: array)?["structured_output"] != nil, "配列の出力は最後のresultを読む")
+        try check(ClaudeOutput.result(from: Data("Error: boom".utf8)) == nil, "JSONでない出力はnil")
     }
 
     static func tightening() throws {

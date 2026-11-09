@@ -124,7 +124,7 @@ enum ClaudeRunner {
         deadline.cancel()
 
         let seconds = Date().timeIntervalSince(started)
-        let json = (try? JSONSerialization.jsonObject(with: outData)) as? [String: Any]
+        let json = ClaudeOutput.result(from: outData)
         let timedOut = process.terminationReason == .uncaughtSignal || seconds >= call.timeout
 
         var result = ClaudeResult()
