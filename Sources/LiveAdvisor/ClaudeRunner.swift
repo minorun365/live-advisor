@@ -40,6 +40,8 @@ enum ClaudeRunner {
             "--json-schema", call.schema,
             "--tools", call.tools.joined(separator: ","),
             "--setting-sources", "",
+            // A user's `verbose: true` still reaches -p and turns the result into an array of every message.
+            "--settings", #"{"verbose":false}"#,
             "--strict-mcp-config",
             "--disable-slash-commands",
             "--no-session-persistence",

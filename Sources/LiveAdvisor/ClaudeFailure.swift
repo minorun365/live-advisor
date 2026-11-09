@@ -28,7 +28,7 @@ enum ClaudeFailure: Equatable {
 }
 
 enum ClaudeOutput {
-    /// `--output-format json` used to print one result object. Newer Claude Code prints an array of
+    /// `--output-format json` prints one result object, but with verbose on it prints an array of
     /// every message, with the result object last. Either way, return the result object.
     static func result(from data: Data) -> [String: Any]? {
         let parsed = try? JSONSerialization.jsonObject(with: data)
