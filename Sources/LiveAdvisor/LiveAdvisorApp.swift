@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: AdvisorWindow!
     private var subscriptions = Set<AnyCancellable>()
+    private var hotKey: LookupHotKey?
     private var contentHeight: CGFloat = 60
     /// The snapshot draws the panel off screen, so it must not be moved back under the icon.
     private var isSnapshot = false
@@ -45,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel = makePanel()
         engine.start()
+        hotKey = LookupHotKey { [weak self] in
+            Task { @MainActor in self?.engine.requestNow() }
+        }
 
         if isInstalled {
             try? SMAppService.mainApp.register()

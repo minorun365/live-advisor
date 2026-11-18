@@ -65,14 +65,15 @@ struct AdvisorPolicySelfTest {
                 panelOpened: panel
             )
         }
-        try check(reason(at: 179, panel: true) == nil, "最初の3分はパネルを開いても動かない")
-        try check(reason(at: 180) == .periodic, "3分で最初の定期判定")
-        try check(reason(at: 180, characters: 10) == nil, "新しい文字が少なければ動かない")
-        try check(reason(at: 300, last: 200) == nil, "前回から3分までは定期判定しない")
-        try check(reason(at: 300, last: 200, panel: true) == .panel, "1分あければパネルで動く")
-        try check(reason(at: 300, last: 200, trigger: true) == .trigger, "1分あければきっかけ語で動く")
-        try check(reason(at: 250, last: 200, trigger: true) == nil, "きっかけ語でも1分はあける")
-        try check(reason(at: 380, last: 200) == .periodic, "前回から3分で定期判定")
+        try check(reason(at: 10, panel: true) == .panel, "録音の直後でもパネルを開けば判定する")
+        try check(reason(at: 59) == nil, "最初の定期判定は1分後")
+        try check(reason(at: 60) == .periodic, "1分で最初の定期判定")
+        try check(reason(at: 60, characters: 10) == nil, "新しい文字が少なければ動かない")
+        try check(reason(at: 50, last: 0) == nil, "前回から1分までは定期判定しない")
+        try check(reason(at: 60, last: 0) == .periodic, "前回から1分で定期判定")
+        try check(reason(at: 40, last: 0, panel: true) == .panel, "30秒あければパネルで動く")
+        try check(reason(at: 40, last: 0, trigger: true) == .trigger, "30秒あければきっかけ語で動く")
+        try check(reason(at: 20, last: 0, trigger: true) == nil, "きっかけ語でも30秒はあける")
 
         let me = TranscriptLine(at: start, speaker: .me, text: "それは持ち帰って確認します")
         let them = TranscriptLine(at: start, speaker: .others, text: "それは持ち帰って確認します")
@@ -90,16 +91,43 @@ struct AdvisorPolicySelfTest {
         func item(_ kind: CardKind, research: Bool = true, confidence: Double = 0.9, own: Bool = false, others: Bool = false) -> JudgeOutput.Item {
             JudgeOutput.Item(kind: kind, title: "t", note: "n", research: research, confidence: confidence, declared_by_self: own, asked_by_others: others, search_questions: [])
         }
-        try check(AdvisorPolicy.shouldRunAutomatically(item(.takeaway, own: true), usedAutomatic: 0), "本人の持ち帰りは自動")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.takeaway, research: false, own: true), usedAutomatic: 0), "調べて答えが出ない持ち帰りは自動にしない")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.takeaway), usedAutomatic: 0), "宣言のない持ち帰りは自動にしない")
-        try check(AdvisorPolicy.shouldRunAutomatically(item(.question, others: true), usedAutomatic: 0), "確信度の高い相手の質問は自動")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.question, confidence: 0.84, others: true), usedAutomatic: 0), "確信度0.85未満は候補")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.question), usedAutomatic: 0), "相手の質問でなければ候補")
-        try check(AdvisorPolicy.shouldRunAutomatically(item(.direction, research: false), usedAutomatic: 0), "確信度の高い論点は自動")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.direction, confidence: 0.6), usedAutomatic: 0), "確信度の低い論点は候補")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.risk), usedAutomatic: 0), "食い違いは自動にしない")
-        try check(!AdvisorPolicy.shouldRunAutomatically(item(.takeaway, own: true), usedAutomatic: 5), "1会議5回まで")
+        func auto(_ item: JudgeOutput.Item, used: Int = 0, research: Int = 0) -> Bool {
+            AdvisorPolicy.shouldRunAutomatically(item, usedAutomatic: used, usedResearch: research)
+        }
+        try check(auto(item(.question, confidence: 0.6)), "調べられる問いは確信度や話者に関係なく先に調べる")
+        try check(auto(item(.takeaway, confidence: 0.5)), "調べられる持ち帰りも先に調べる")
+        try check(!auto(item(.question, research: false)), "調べられない問いは調べない")
+        try check(!auto(item(.takeaway, research: false, own: true)), "調べて答えが出ない持ち帰りは調べない")
+        try check(!auto(item(.question), research: 15), "先回りの調査は1会議15件まで")
+        try check(auto(item(.question), used: 5), "論点の上限は調査に効かない")
+        try check(auto(item(.direction, research: false)), "確信度の高い論点は自動")
+        try check(!auto(item(.direction, confidence: 0.6)), "確信度の低い論点は候補")
+        try check(!auto(item(.direction), used: 5), "論点は1会議5回まで")
+        try check(!auto(item(.risk, research: false)), "調べられない食い違いは自動にしない")
+
+        let now = Date(timeIntervalSinceReferenceDate: 2_000_000)
+        func card(_ kind: CardKind, _ state: CardState, confidence: Double = 0.9, requested: Bool = false) -> Card {
+            var card = Card(kind: kind, title: "t", note: "", research: true, confidence: confidence, createdAt: now)
+            card.state = state
+            card.requested = requested
+            return card
+        }
+        try check(!AdvisorPolicy.isShown(card(.question, .candidate)), "答えの無い問いは並べない")
+        try check(!AdvisorPolicy.isShown(card(.question, .running)), "調べている途中の問いも並べない")
+        try check(AdvisorPolicy.isShown(card(.question, .done)), "答えが出た問いは並べる")
+        try check(AdvisorPolicy.isShown(card(.question, .running, requested: true)), "押して調べている間は見せる")
+        try check(AdvisorPolicy.isShown(card(.takeaway, .candidate)), "持ち帰りはそれだけで並べる")
+        try check(AdvisorPolicy.isShown(card(.risk, .candidate)), "食い違いはそれだけで並べる")
+        try check(!AdvisorPolicy.isShown(card(.risk, .candidate, confidence: 0.5)), "念のための食い違いは並べない")
+        try check(!AdvisorPolicy.isShown(card(.direction, .candidate)), "推奨の無い論点は並べない")
+
+        let talk = [
+            TranscriptLine(at: now.addingTimeInterval(-600), speaker: .others, text: String(repeating: "古", count: 50)),
+            TranscriptLine(at: now.addingTimeInterval(-100), speaker: .others, text: String(repeating: "新", count: 90)),
+        ]
+        try check(AdvisorPolicy.lookupLines(talk, now: now).count == 1, "直近2分の発言だけを読む")
+        let quiet = [TranscriptLine(at: now.addingTimeInterval(-100), speaker: .me, text: "はい")] + talk.prefix(1)
+        try check(AdvisorPolicy.lookupLines(Array(quiet), now: now).count == 2, "直近が短ければ最後の発言までさかのぼる")
     }
 
     static func duplicates() throws {
@@ -130,7 +158,7 @@ struct AdvisorPolicySelfTest {
         try check(existing == ["/home/notes", "/srv/records"], "チルダを展開し、無いフォルダと相対パスを落とす")
         try check(!AdvisorPolicy.shouldRunAutomatically(
             JudgeOutput.Item(kind: .history, title: "前回何を決めた？", note: "", research: true, confidence: 1, declared_by_self: true, asked_by_others: true, search_questions: []),
-            usedAutomatic: 0), "経緯は判定からは動かさない")
+            usedAutomatic: 0, usedResearch: 0), "経緯は判定からは動かさない")
     }
 
     static func tailer() throws {

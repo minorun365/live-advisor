@@ -1,7 +1,7 @@
 import Foundation
 
 struct ClaudeCall {
-    enum Job: String { case judge, research, direction, tighten, history }
+    enum Job: String { case judge, research, direction, tighten, history, lookup }
 
     let job: Job
     let model: String
@@ -149,6 +149,17 @@ enum ClaudeRunner {
 
 /// Numbers only. Meeting text stays in the meeting folder.
 enum UsageLog {
+    /// How often the panel was opened during a meeting and how many of those opens found nothing new.
+    static func writePanel(opens: Int, empty: Int, shownCards: Int) {
+        append([
+            "at": ISO8601DateFormatter().string(from: Date()),
+            "job": "panel",
+            "opens": opens,
+            "empty_opens": empty,
+            "shown_cards": shownCards,
+        ])
+    }
+
     static func write(call: ClaudeCall, seconds: TimeInterval, json: [String: Any]?, status: String) {
         let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/LiveAdvisor", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -168,6 +179,12 @@ enum UsageLog {
             "terminal_reason": json?["terminal_reason"] ?? NSNull(),
             "status": status,
         ]
+        append(record)
+    }
+
+    private static func append(_ record: [String: Any]) {
+        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/LiveAdvisor", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard var line = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) else { return }
         line.append(0x0A)
         let file = directory.appendingPathComponent("live-advisor.log")

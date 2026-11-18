@@ -128,6 +128,12 @@ struct DirectionOutput: Decodable {
     let unknowns: String
 }
 
+/// What the lookup button decided to search for. Questions only: the meeting text never reaches the web.
+struct LookupOutput: Decodable {
+    let title: String
+    let search_questions: [String]
+}
+
 /// What the background stage found in the person's own notes.
 struct HistoryOutput: Decodable {
     let found: Bool

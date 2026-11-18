@@ -24,15 +24,19 @@ struct AdvisorPolicy {
         return isRunning ? .listening : .idle
     }
 
+    /// Half of what the person looks up is wanted within a minute of being said, so the judge keeps up with that.
     struct Pace {
-        var startDelay: TimeInterval = 180
-        var periodic: TimeInterval = 180
-        var minimumGap: TimeInterval = 60
+        var startDelay: TimeInterval = 0
+        var periodic: TimeInterval = 60
+        var minimumGap: TimeInterval = 30
         var minimumCharacters = 40
     }
 
     static let automaticConfidence = 0.85
+    /// Proposals read the whole discussion with Opus, so only the clearest few start on their own.
     static let automaticLimitPerMeeting = 5
+    /// A public fact is looked up before anyone asks: an unanswered question on the panel is no help.
+    static let researchLimitPerMeeting = 15
 
     /// Words the person actually uses when taking something home. Spoken by others they mean nothing.
     static let takeawayWords = ["持ち帰", "確認します", "確認しておき", "確認してみ", "調べます", "調べておき", "調べてみ", "後ほど", "宿題"]
@@ -73,13 +77,11 @@ struct AdvisorPolicy {
         lines.filter { $0.speaker != .others && takeawayWords.contains(where: $0.text.contains) }.map(\.text)
     }
 
-    static func shouldRunAutomatically(_ item: JudgeOutput.Item, usedAutomatic: Int) -> Bool {
-        guard usedAutomatic < automaticLimitPerMeeting else { return false }
+    static func shouldRunAutomatically(_ item: JudgeOutput.Item, usedAutomatic: Int, usedResearch: Int) -> Bool {
         switch item.kind {
-        case .takeaway: return item.declared_by_self && item.research
-        case .question: return item.asked_by_others && item.research && item.confidence >= automaticConfidence
-        case .direction: return item.confidence >= automaticConfidence
-        case .risk, .history: return false
+        case .question, .takeaway, .risk: return item.research && usedResearch < researchLimitPerMeeting
+        case .direction: return usedAutomatic < automaticLimitPerMeeting && item.confidence >= automaticConfidence
+        case .history: return false
         }
     }
 
@@ -90,9 +92,37 @@ struct AdvisorPolicy {
 
     /// The one list the panel shows: whatever changed last comes first.
     static func feed(_ cards: [Card]) -> [Card] {
-        cards
-            .filter { $0.state != .candidate || $0.confidence >= minimumCandidateConfidence }
-            .sorted { $0.updatedAt > $1.updatedAt }
+        cards.filter(isShown).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// A question without its answer only repeats what was just said, so it waits until the answer is in.
+    /// A takeaway or a contradiction says something on its own and shows at once.
+    static func isShown(_ card: Card) -> Bool {
+        switch card.state {
+        case .done, .failed: return true
+        case .running: return card.isRequested
+        case .candidate:
+            return (card.kind == .takeaway || card.kind == .risk) && card.confidence >= minimumCandidateConfidence
+        }
+    }
+
+    /// The lookup button reads what was said in the last two minutes, the window in which a person
+    /// usually decides something needs checking. A quiet stretch falls back to the latest lines.
+    static let lookupWindow: TimeInterval = 120
+    static let lookupMinimumCharacters = 80
+    static let lookupFallbackCharacters = 1500
+
+    static func lookupLines(_ lines: [TranscriptLine], now: Date) -> [TranscriptLine] {
+        let recent = lines.filter { now.timeIntervalSince($0.at) <= lookupWindow }
+        if recent.reduce(0, { $0 + $1.text.count }) >= lookupMinimumCharacters { return recent }
+        var picked: [TranscriptLine] = []
+        var count = 0
+        for line in lines.reversed() {
+            guard count < lookupFallbackCharacters else { break }
+            picked.insert(line, at: 0)
+            count += line.text.count
+        }
+        return picked
     }
 
     /// True when the card sat in an open panel long enough to have been noticed.

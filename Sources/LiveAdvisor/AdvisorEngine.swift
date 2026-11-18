@@ -59,6 +59,11 @@ final class AdvisorEngine: ObservableObject {
     private var triggerPending = false
     private var panelOpenPending = false
     private var automaticUsed = 0
+    private var researchUsed = 0
+    /// Opens that found nothing new since the last look. Counted so a change can be measured, not guessed.
+    private var panelOpens = 0
+    private var emptyOpens = 0
+    private var lastOpenAt: Date?
     private var queue: [String] = []
     private var jobRunning = false
     private var panelVisible = false
@@ -95,6 +100,10 @@ final class AdvisorEngine: ObservableObject {
         triggerPending = false
         panelOpenPending = false
         automaticUsed = 0
+        researchUsed = 0
+        panelOpens = 0
+        emptyOpens = 0
+        lastOpenAt = nil
         background = nil
         historyAttempts = 0
         lastHistoryAt = nil
@@ -133,6 +142,7 @@ final class AdvisorEngine: ObservableObject {
         phase = .finished
         save()
         writeSummary()
+        UsageLog.writePanel(opens: panelOpens, empty: emptyOpens, shownCards: AdvisorPolicy.feed(cards).count)
     }
 
     // MARK: User actions
@@ -149,6 +159,12 @@ final class AdvisorEngine: ObservableObject {
         panelVisible = true
         checkTranscriber()
         panelOpenedAt = Date()
+        if phase == .running {
+            let since = lastOpenAt ?? startedAt
+            panelOpens += 1
+            if !AdvisorPolicy.feed(cards).contains(where: { $0.updatedAt > since }) { emptyOpens += 1 }
+            lastOpenAt = panelOpenedAt
+        }
         openCount += 1
         hasUnread = false
         panelOpenPending = true
@@ -168,8 +184,9 @@ final class AdvisorEngine: ObservableObject {
         update(cardID) { $0.readAt = Date() }
     }
 
-    /// The button for when the meeting needs an answer now, without waiting for the judge's pace.
-    /// It skips the job queue: a person is waiting, and a running search can take a minute and a half.
+    /// The button (and its shortcut) for "look this up now": it searches what was said in the last two
+    /// minutes, which is where the person's own "I should check that" comes from. When nothing there can
+    /// be looked up it falls back to suggesting the next move. It skips the job queue: a person is waiting.
     func requestNow() {
         guard phase == .running, !isRequesting else { return }
         guard !transcript.isEmpty else {
@@ -177,13 +194,13 @@ final class AdvisorEngine: ObservableObject {
             return
         }
         problem = nil
-        var card = Card(kind: .direction, title: "今やるとよいこと", note: "", research: false, confidence: 1, createdAt: Date())
+        var card = Card(kind: .question, title: "直近の話を調べています", note: "", research: true, confidence: 1, createdAt: Date())
         card.requested = true
         card.state = .running
         cards.insert(card, at: 0)
         save()
         Task {
-            await runRequest(card)
+            await runLookup(card)
             save()
             if phase == .finished { writeSummary() }
         }
@@ -285,7 +302,7 @@ final class AdvisorEngine: ObservableObject {
                 searchQuestions: item.search_questions,
                 createdAt: Date()
             )
-            var runNow = AdvisorPolicy.shouldRunAutomatically(item, usedAutomatic: automaticUsed)
+            var runNow = AdvisorPolicy.shouldRunAutomatically(item, usedAutomatic: automaticUsed, usedResearch: researchUsed)
             // One discussion should not buy the same advice twice. Later rewordings wait for a press.
             if item.kind == .direction, hasRecentDirection { runNow = false }
             #if DEBUG
@@ -293,7 +310,7 @@ final class AdvisorEngine: ObservableObject {
             if environment["LIVE_ADVISOR_PRESS_DIRECTION"] == "1", item.kind == .direction { runNow = true }
             #endif
             if runNow {
-                automaticUsed += 1
+                if item.kind == .direction { automaticUsed += 1 } else { researchUsed += 1 }
                 card.startedAutomatically = true
                 card.state = .running
                 cards.insert(card, at: 0)
@@ -307,11 +324,11 @@ final class AdvisorEngine: ObservableObject {
     /// A question often becomes a candidate just before the person says "I'll check". The judge then
     /// sees the same topic and stays silent, so the promise is honoured here instead of by the model.
     private func startLatestResearchCandidate() {
-        guard automaticUsed < AdvisorPolicy.automaticLimitPerMeeting,
+        guard researchUsed < AdvisorPolicy.researchLimitPerMeeting,
               let card = cards.first(where: {
                   $0.kind == .question && $0.state == .candidate && $0.research
               }) else { return }
-        automaticUsed += 1
+        researchUsed += 1
         update(card.id) { $0.startedAutomatically = true }
         run(cardID: card.id)
     }
@@ -483,6 +500,65 @@ final class AdvisorEngine: ObservableObject {
         await apply(output, to: card.id)
     }
 
+    /// Two stages, as everywhere else: Haiku reads the last two minutes with no tools and writes
+    /// anonymous questions, and only those questions reach the web. Both searches run at once.
+    private func runLookup(_ card: Card) async {
+        let recent = AdvisorPolicy.lookupLines(transcript, now: Date()).map(\.rendered).joined(separator: "\n")
+        let call = ClaudeCall(
+            job: .lookup,
+            model: "haiku",
+            effort: "low",
+            system: Prompts.lookupSystem,
+            schema: Prompts.lookupSchema,
+            timeout: 30,
+            prompt: Prompts.lookupPrompt(memo: memo, transcript: recent)
+        )
+        let result = await ClaudeRunner.run(call)
+        guard let data = result.structured, let output = try? JSONDecoder().decode(LookupOutput.self, from: data) else {
+            finish(card.id, failure: Self.message(for: result.failure))
+            return
+        }
+        let questions = Array(output.search_questions.filter { !$0.isEmpty }.prefix(2))
+        guard !questions.isEmpty else {
+            // Nothing public to check: the press still gets an answer, the next move to make.
+            update(card.id) { $0.kind = .direction; $0.title = "今やるとよいこと" }
+            await runRequest(card)
+            return
+        }
+        questions.forEach(recordQuery)
+        update(card.id) { $0.title = output.title; $0.searchQuestions = questions }
+        let answers = await withTaskGroup(of: (Int, ResearchOutput?).self) { group in
+            for (index, question) in questions.enumerated() {
+                group.addTask {
+                    let result = await ClaudeRunner.run(self.webCall(question: question))
+                    return (index, result.structured.flatMap { try? JSONDecoder().decode(ResearchOutput.self, from: $0) })
+                }
+            }
+            var answers = [ResearchOutput?](repeating: nil, count: questions.count)
+            for await (index, output) in group { answers[index] = output }
+            return answers
+        }
+        let found = answers.compactMap { $0 }
+        guard let first = found.first else {
+            finish(card.id, failure: "調べた範囲では答えが見つかりませんでした")
+            return
+        }
+        // The second search answers a neighbouring question, so its conclusion leads the points.
+        let extra = found.dropFirst().map(\.conclusion) + first.points
+        let lines = await tightened(
+            [TightenRequest(text: first.conclusion, limit: AdvisorPolicy.answerLimit),
+             AdvisorPolicy.titleRequest(output.title, kind: .question)]
+                + extra.prefix(3).map { TightenRequest(text: $0, limit: AdvisorPolicy.pointLimit) }
+        )
+        update(card.id) {
+            $0.title = lines[1]
+            $0.conclusion = lines[0]
+            $0.points = Array(lines.dropFirst(2))
+            $0.sources = Array(found.flatMap { $0.sources.prefix(2) }.prefix(4))
+        }
+        finish(card.id, failure: nil)
+    }
+
     /// Reads the whole meeting so far with no tools, so the answer comes back while it still matters.
     private func runRequest(_ card: Card) async {
         let call = ClaudeCall(
@@ -560,7 +636,7 @@ final class AdvisorEngine: ObservableObject {
         return lines
     }
 
-    private func webCall(question: String) -> ClaudeCall {
+    nonisolated private func webCall(question: String) -> ClaudeCall {
         ClaudeCall(
             job: .research,
             model: "opus",

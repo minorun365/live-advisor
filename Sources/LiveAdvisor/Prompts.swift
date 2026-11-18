@@ -17,6 +17,7 @@ enum Prompts {
     direction=複数の案で決めきれない、論点が堂々巡りしている、判断基準が曖昧なまま進んでいる議論。
     雑談・一般論・すでに答えが出た話は拾わない。無ければ cards は空にする。既出の項目と同じ論点は、言い方や種類を変えても拾わない。同じ話を question と takeaway の両方で出さず、本人が持ち帰ると言ったなら takeaway の1枚にまとめる。direction は1回に1枚まで。
     research は、公開情報を調べれば答えが出るものだけ true にする。製品の対応リージョン・上限・料金のように公式情報で分かる持ち帰りは、takeaway でも true にする。
+    話に出た製品名・サービス名・制度・規格や、料金・上限・期限・件数のような数字の主張で、公開情報で確かめられるものは、誰も質問していなくても question として拾い research を true にする。本人がその場で「調べなきゃ」と思いやすいのはここで、答えは先に調べておく。社内の事情や相手の都合のように公開情報で分からないものは research を false にする。
     declared_by_self は「自分：」の行で本人が持ち帰りを宣言したときだけ true。asked_by_others は「相手：」の行の質問のときだけ true。話者が無い文字起こしでは文脈で判断し、迷えば false。
     search_questions は Web検索へ渡す問いの文。direction は判断材料になる問いを0〜2本、research が true の項目は1本書く。
     search_questions には会社名・人名・案件名・製品の社内呼称・金額を絶対に入れず、公開情報として一般化して書く。それ以外の項目は空配列。
@@ -66,6 +67,28 @@ enum Prompts {
     static let directionSchema = #"""
     {"type":"object","properties":{"recommendation":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["recommendation","points","options","ask_next","unknowns"],"additionalProperties":false}
     """#
+
+    static let lookupSystem = """
+    会議の直近の発言を読み、本人がいま調べたいと思っていそうなことを選んで、Web検索へ渡す問いにする。本人はボタンを押したところで、数秒しか読めない。
+    選び方：直近に出た製品名・サービス名・制度・規格・数字の主張・聞き慣れない言葉のうち、公開情報で答えが出て、いまの話を進めるのに役立つものを優先する。最後のほうの発言ほど優先する。
+    search_questions は1〜2本。会社名・人名・案件名・製品の社内呼称・金額を絶対に入れず、公開情報として一般化した問いの文にする。公開情報で答えが出るものが無ければ空配列にする。
+    \(plainWords)
+    title は何を調べたかを18字以内の「？」で終わる短い問いで書く（例：「Bedrockの東京の上限は？」）。
+    """
+
+    static let lookupSchema = #"""
+    {"type":"object","properties":{"title":{"type":"string"},"search_questions":{"type":"array","items":{"type":"string"}}},"required":["title","search_questions"],"additionalProperties":false}
+    """#
+
+    static func lookupPrompt(memo: String, transcript: String) -> String {
+        """
+        会議の要点メモ:
+        \(memo.isEmpty ? "（まだ無い）" : memo)
+
+        直近の発言:
+        \(transcript)
+        """
+    }
 
     static let requestSystem = """
     会議のここまでの文字起こしを読み、本人がいま何をするとよいかを1つに決めて伝える。本人は会議の最中で、数秒しか読めない。

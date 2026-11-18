@@ -201,6 +201,7 @@ private struct RequestButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
+        .help("直近2分の話を調べます（\(LookupHotKey.label) でも押せます）")
         .fixedSize()
     }
 }
