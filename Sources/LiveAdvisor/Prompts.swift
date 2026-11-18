@@ -106,7 +106,8 @@ enum Prompts {
 
     static let historySystem = """
     会議の文字起こしを読み、本人の手元の記録フォルダから、この会議と同じ相手・同じ案件の過去の経緯を探して伝える。本人は会議の最中で、数秒しか読めない。
-    探し方：文字起こしに出た社名・人名・製品名・話題を手がかりに、Grep と Glob で記録フォルダを探す。文字起こしは音声認識なので固有名詞が化けていることがある。読みの近い漢字、カタカナ、英字の表記も試す。案件のフォルダが見つかったら、README と、日付の新しい議事録・メモを優先して読む。読むファイルは10本までにする。
+    探し方：会議の窓のタイトル（予定の件名のことが多い）と、文字起こしに出た社名・人名・製品名・話題を手がかりに、Grep と Glob で記録フォルダを探す。文字起こしは音声認識なので固有名詞が化けていることがある。読みの近い漢字、カタカナ、英字の表記も試す。案件のフォルダが見つかったら、README と、日付の新しい議事録・メモを優先して読む。読むファイルは10本までにする。
+    「いま問われていること」があれば、その問いに答える記録を優先して探し、conclusion はその問いへの答えにし、title はその問いにする。答えが記録に無ければ found を false にする。
     同じ相手・同じ案件だと言える記録が無ければ found を false にし、ほかの欄は空にする。話題が似ているだけの別の案件を当てはめない。
     記録に書かれていることだけを使い、無い事実を足さない。決まったことと、案として出ただけのことを分ける。
     \(plainWords)
@@ -118,10 +119,16 @@ enum Prompts {
     {"type":"object","properties":{"found":{"type":"boolean"},"title":{"type":"string"},"conclusion":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"ask_next":{"type":"string"},"background":{"type":"string"},"files":{"type":"array","items":{"type":"string"}}},"required":["found","title","conclusion","points","ask_next","background","files"],"additionalProperties":false}
     """#
 
-    static func historyPrompt(folders: [String], memo: String, transcript: String) -> String {
+    static func historyPrompt(folders: [String], windowTitle: String? = nil, focus: String? = nil, memo: String, transcript: String) -> String {
         """
         記録フォルダ:
         \(folders.map { "- \($0)" }.joined(separator: "\n"))
+
+        会議の窓のタイトル:
+        \(windowTitle ?? "（不明）")
+
+        いま問われていること:
+        \(focus ?? "（無し。この会議の経緯を全体として探す）")
 
         会議の要点メモ:
         \(memo.isEmpty ? "（まだ無い）" : memo)

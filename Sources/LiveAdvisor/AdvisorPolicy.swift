@@ -46,6 +46,26 @@ struct AdvisorPolicy {
     /// A question from the other side is worth judging now rather than at the next periodic pass.
     static let questionWords = ["質問なんですが", "質問です", "質問があ", "教えてください", "教えていただ", "お聞きしたい", "聞きたいんですが", "伺いたい", "知りたい"]
 
+    /// Words that ask what was decided or quoted before. The answer sits in the person's notes, not on
+    /// the web, and in practice the person typed these questions to Claude while the meeting went on.
+    static let recordWords = ["前回", "この前", "こないだ", "以前", "でしたっけ", "だっけ", "見積", "どう決め", "決めてた", "決まってた", "宿題", "ネクストアクション", "経緯"]
+    /// Each extra search of the notes costs about as much as the first, so a meeting gets a few.
+    static let followUpHistoryLimit = 4
+    static let followUpHistoryGap: TimeInterval = 120
+    /// The first search starts as soon as there is this much to go on, instead of waiting for the judge.
+    static let firstHistoryCharacters = 150
+
+    static func asksRecord(_ line: TranscriptLine) -> Bool {
+        recordWords.contains(where: line.text.contains)
+    }
+
+    /// The latest line that asks about the past, when another search of the notes is allowed now.
+    static func followUpFocus(in lines: [TranscriptLine], now: Date, lastAt: Date?, used: Int, running: Bool) -> TranscriptLine? {
+        guard !running, used < followUpHistoryLimit,
+              lastAt.map({ now.timeIntervalSince($0) >= followUpHistoryGap }) ?? true else { return nil }
+        return lines.last(where: asksRecord)
+    }
+
     var pace = Pace()
 
     func judgeReason(

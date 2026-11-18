@@ -4,6 +4,7 @@ import Foundation
 final class SessionWatcher {
     var onStart: ((URL, Date) -> Void)?
     var onLines: (([TranscriptLine]) -> Void)?
+    var onTitle: ((String) -> Void)?
     var onEnd: (() -> Void)?
 
     static let recordingIdleLimit: TimeInterval = 5 * 60
@@ -60,6 +61,7 @@ final class SessionWatcher {
         current = folder
         lastGrowth = Date()
         onStart?(folder, Self.startDate(fromFolderName: newest) ?? Date())
+        if let title = backlog.windowTitle { onTitle?(title) }
         if !backlog.lines.isEmpty { onLines?(backlog.lines) }
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -73,6 +75,7 @@ final class SessionWatcher {
         guard let tailer, let current else { return }
         let batch = tailer.poll()
         if batch.grew { lastGrowth = Date() }
+        if let title = batch.windowTitle { onTitle?(title) }
         if !batch.lines.isEmpty { onLines?(batch.lines) }
         guard batch.stopped || Date().timeIntervalSince(lastGrowth) > Self.recordingIdleLimit else { return }
         pollTimer?.cancel()

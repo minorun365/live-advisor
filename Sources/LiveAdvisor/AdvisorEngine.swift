@@ -47,6 +47,9 @@ final class AdvisorEngine: ObservableObject {
     private var historyAttempts = 0
     private var lastHistoryAt: Date?
     private var historyRunning = false
+    private var followUpUsed = 0
+    private var lastFollowUpAt: Date?
+    private var windowTitle: String?
 
     private var watcher: SessionWatcher?
     private var ticker: Timer?
@@ -78,6 +81,9 @@ final class AdvisorEngine: ObservableObject {
         watcher.onStart = { [weak self] folder, startedAt in
             Task { @MainActor in self?.recordingStarted(folder: folder, startedAt: startedAt) }
         }
+        watcher.onTitle = { [weak self] title in
+            Task { @MainActor in self?.receivedTitle(title) }
+        }
         watcher.onLines = { [weak self] lines in
             Task { @MainActor in self?.received(lines) }
         }
@@ -107,6 +113,9 @@ final class AdvisorEngine: ObservableObject {
         background = nil
         historyAttempts = 0
         lastHistoryAt = nil
+        followUpUsed = 0
+        lastFollowUpAt = nil
+        windowTitle = nil
         queue = []
         cards = []
         problem = nil
@@ -120,8 +129,21 @@ final class AdvisorEngine: ObservableObject {
         }
     }
 
+    private func receivedTitle(_ title: String) {
+        guard phase == .running, windowTitle != title else { return }
+        windowTitle = title
+        startHistoryIfDue()
+    }
+
     private func received(_ lines: [TranscriptLine]) {
         transcript.append(contentsOf: lines)
+        if phase == .running {
+            if historyAttempts == 0, transcript.reduce(0, { $0 + $1.text.count }) >= AdvisorPolicy.firstHistoryCharacters {
+                startHistoryIfDue()
+            } else if background != nil || historyAttempts >= Self.historyAttemptLimit {
+                startFollowUpHistory(in: lines)
+            }
+        }
         if lines.contains(where: { AdvisorPolicy.trigger(in: $0) != nil }) {
             triggerPending = true
         }
@@ -342,14 +364,30 @@ final class AdvisorEngine: ObservableObject {
 
     // MARK: Background from the person's notes
 
-    /// Once after the first judge, and once more five minutes later if the names were not out yet.
+    /// As soon as the window title or the first lines give names to search for, again after the first
+    /// judge, and once more five minutes later if the names were not out yet.
     /// It runs beside the job queue: it reads files, not the web, and the answer matters most early.
     private func startHistoryIfDue() {
         guard !contextFolders.isEmpty, background == nil, !historyRunning,
               historyAttempts < Self.historyAttemptLimit,
-              lastHistoryAt.map({ Date().timeIntervalSince($0) >= Self.historyRetryGap }) ?? true else { return }
+              historyAttempts < 2 || lastHistoryAt.map({ Date().timeIntervalSince($0) >= Self.historyRetryGap }) ?? true else { return }
         historyAttempts += 1
         lastHistoryAt = Date()
+        runHistory(focus: nil)
+    }
+
+    /// "How much did we quote last time?" mid-meeting: the notes are searched again for that question,
+    /// because the first search only covered what the opening was about.
+    private func startFollowUpHistory(in lines: [TranscriptLine]) {
+        guard !contextFolders.isEmpty,
+              let line = AdvisorPolicy.followUpFocus(in: lines, now: Date(), lastAt: lastFollowUpAt, used: followUpUsed, running: historyRunning)
+        else { return }
+        followUpUsed += 1
+        lastFollowUpAt = Date()
+        runHistory(focus: line.rendered)
+    }
+
+    private func runHistory(focus: String?) {
         historyRunning = true
         let call = ClaudeCall(
             job: .history,
@@ -363,6 +401,8 @@ final class AdvisorEngine: ObservableObject {
             timeout: 180,
             prompt: Prompts.historyPrompt(
                 folders: contextFolders,
+                windowTitle: windowTitle,
+                focus: focus,
                 memo: memo,
                 transcript: Self.tail(transcript.map(\.rendered).joined(separator: "\n"), limit: 6000)
             )
@@ -376,7 +416,8 @@ final class AdvisorEngine: ObservableObject {
                 return
             }
             // Nothing found is not news. The card only appears when there is history to show.
-            guard output.found, !output.conclusion.isEmpty else { return }
+            guard output.found, !output.conclusion.isEmpty,
+                  !AdvisorPolicy.isDuplicate(output.title, of: cards.filter { $0.kind == .history }.map(\.title)) else { return }
             await addHistoryCard(output)
             save()
             if phase == .finished { writeSummary() }
@@ -391,7 +432,8 @@ final class AdvisorEngine: ObservableObject {
                 + output.points.prefix(3).map { TightenRequest(text: $0, limit: AdvisorPolicy.pointLimit) }
         )
         let files = Array(output.files.filter { $0.hasPrefix("/") }.prefix(5))
-        background = output.background
+        // A later search adds to what the proposals know rather than replacing the opening's history.
+        background = [background, output.background].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         recordContext(files)
         var card = Card(kind: .history, title: lines[1], note: "", research: false, confidence: 1, createdAt: Date())
         card.conclusion = lines[0]
@@ -404,7 +446,7 @@ final class AdvisorEngine: ObservableObject {
         if !panelVisible { hasUnread = true }
     }
 
-    private static let historyAttemptLimit = 2
+    private static let historyAttemptLimit = 3
     private static let historyRetryGap: TimeInterval = 300
 
     /// The last two parts of a path: enough to recognise the note without a long line.

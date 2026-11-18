@@ -21,6 +21,7 @@ MEETING = [
     ("me", "承知しました。そちらも調べておきます。"),
     ("others", "更新の方式は社内でも意見が割れていまして、一括で更新するか、複製して切り替えるか決めきれていません。"),
     ("others", "一括更新は手順が単純だけれどサイトを止めることになる。複製して切り替えるのは止まらないけれど準備が大変です。"),
+    ("me", "そういえば前回、予約が一番少ない時間帯ってどこでしたっけ。"),
     ("me", "サイトはどのくらいなら止められるんでしょうか。"),
     ("others", "そこも悩ましいところで、現場は三十分までと言っていますが、根拠があるわけではありません。"),
     ("me", "となると、どちらがいいか判断が難しいですね。"),
@@ -48,6 +49,7 @@ def main() -> int:
             f.write(json.dumps({"type": kind, "timestamp": stamp, "payload": payload}, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     write("session_started", {"recognizer": "replay"})
+    write("screen_capture_target", {"target": "meeting_window", "app": "com.google.Chrome", "title": "Meet - そらまめスペース様 定例"})
     for speaker, text in MEETING:
         time.sleep(interval)
         write("recognition", {"text": text[: len(text) // 2], "final": "false", "speaker": speaker})

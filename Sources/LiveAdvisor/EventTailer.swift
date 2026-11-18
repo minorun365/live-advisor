@@ -9,10 +9,13 @@ final class EventTailer {
         var lines: [TranscriptLine] = []
         var stopped = false
         var grew = false
+        /// The meeting window's title, often the calendar event's name. Known before anyone speaks.
+        var windowTitle: String?
     }
 
     private static let finalMarker = Data("\"final\":\"true\"".utf8)
     private static let stopMarker = Data("\"session_stopped\"".utf8)
+    private static let targetMarker = Data("\"screen_capture_target\"".utf8)
     private static let newline: UInt8 = 0x0A
 
     private let url: URL
@@ -48,11 +51,22 @@ final class EventTailer {
             start = end + 1
             if line.range(of: Self.stopMarker) != nil {
                 batch.stopped = true
+            } else if line.range(of: Self.targetMarker) != nil, let title = windowTitle(Data(line)) {
+                batch.windowTitle = title
             } else if line.range(of: Self.finalMarker) != nil, let parsed = parse(Data(line)) {
                 batch.lines.append(parsed)
             }
         }
         return batch
+    }
+
+    private func windowTitle(_ line: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              object["type"] as? String == "screen_capture_target",
+              let payload = object["payload"] as? [String: String],
+              let title = payload["title"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else { return nil }
+        return title
     }
 
     private func parse(_ line: Data) -> TranscriptLine? {

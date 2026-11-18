@@ -12,7 +12,23 @@ struct AdvisorPolicySelfTest {
         try menuBar()
         try tightening()
         try failures()
+        try followUpHistory()
         print("AdvisorPolicySelfTest OK")
+    }
+
+    static func followUpHistory() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 2_000_000)
+        func line(_ text: String, _ speaker: TranscriptLine.Speaker = .me) -> TranscriptLine {
+            TranscriptLine(at: now, speaker: speaker, text: text)
+        }
+        let asked = [line("予約の件数は増えています", .others), line("前回の見積もり、いくらでしたっけ"), line("はい")]
+        try check(AdvisorPolicy.followUpFocus(in: asked, now: now, lastAt: nil, used: 0, running: false)?.text == "前回の見積もり、いくらでしたっけ", "前回を問う発言で記録を探し直す")
+        try check(AdvisorPolicy.followUpFocus(in: [line("決めた日程で進めます")], now: now, lastAt: nil, used: 0, running: false) == nil, "過去を問わない発言では探さない")
+        try check(AdvisorPolicy.asksRecord(line("この前どう決めたっけ", .others)), "相手の問いでも探す")
+        try check(AdvisorPolicy.followUpFocus(in: asked, now: now, lastAt: nil, used: 0, running: true) == nil, "探している最中は重ねない")
+        try check(AdvisorPolicy.followUpFocus(in: asked, now: now, lastAt: now.addingTimeInterval(-60), used: 0, running: false) == nil, "2分以内は重ねない")
+        try check(AdvisorPolicy.followUpFocus(in: asked, now: now, lastAt: now.addingTimeInterval(-121), used: 0, running: false) != nil, "2分空けば探す")
+        try check(AdvisorPolicy.followUpFocus(in: asked, now: now, lastAt: nil, used: AdvisorPolicy.followUpHistoryLimit, running: false) == nil, "1会議の上限で止める")
     }
 
     static func failures() throws {
@@ -191,6 +207,11 @@ struct AdvisorPolicySelfTest {
         try handle.write(contentsOf: Data("{\"type\":\"session_stopped\",\"payload\":{},\"timestamp\":\"2026-11-02T05:00:00Z\"}\n".utf8))
         try handle.close()
         try check(tailer.poll().stopped, "停止を検知する")
+
+        let titled = FileManager.default.temporaryDirectory.appendingPathComponent("advisor-title-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: titled) }
+        try (#"{"type":"screen_capture_target","timestamp":"2026-11-02T05:00:00Z","payload":{"target":"meeting_window","app":"com.google.Chrome","title":"Meet - 架空の定例"}}"# + "\n").write(to: titled, atomically: true, encoding: .utf8)
+        try check(EventTailer(url: titled).poll().windowTitle == "Meet - 架空の定例", "会議の窓のタイトルを読む")
         try check(!tailer.poll().grew, "増えていなければ何もしない")
     }
 
