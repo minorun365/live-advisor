@@ -12,7 +12,10 @@ final class AdvisorEngine: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var cards: [Card] = []
+    /// While the panel is open, whatever has been on screen for a moment counts as seen.
+    @Published private(set) var cards: [Card] = [] {
+        didSet { if panelVisible { scheduleSeen() } }
+    }
     @Published private(set) var isJudging = false
     @Published private(set) var problem: String?
     @Published private(set) var hasUnread = false
@@ -191,6 +194,31 @@ final class AdvisorEngine: ObservableObject {
         hasUnread = false
         panelOpenPending = true
         evaluate()
+        scheduleSeen()
+    }
+
+    private var seenCheckPending = false
+
+    /// Marks cards read once they have stayed on the open panel for a moment, so the highlight only
+    /// points at what is new and does not wait for the panel to close.
+    private func scheduleSeen() {
+        guard !seenCheckPending, cards.contains(where: \.isUnread) else { return }
+        seenCheckPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + AdvisorPolicy.minimumSeenSeconds + 0.1) { [weak self] in
+            guard let self else { return }
+            self.seenCheckPending = false
+            guard self.panelVisible else { return }
+            let now = Date()
+            let seen = self.cards.indices.filter {
+                self.cards[$0].isUnread && AdvisorPolicy.wasSeen(self.cards[$0], openedAt: self.panelOpenedAt, closedAt: now)
+            }
+            if seen.isEmpty {
+                self.scheduleSeen()
+                return
+            }
+            for index in seen { self.cards[index].readAt = now }
+            self.save()
+        }
     }
 
     func panelClosed() {

@@ -109,6 +109,9 @@ struct AdvisorPolicy {
     static let minimumCandidateConfidence = 0.6
     /// A glance this short is an accidental open, not reading.
     static let minimumSeenSeconds: TimeInterval = 1.5
+    /// The system's screenshot tools only run while a capture is being taken.
+    static let screenshotBundleID = "com.apple.screencaptureui"
+    static let screenshotCommand = "screencapture"
 
     /// The one list the panel shows: whatever changed last comes first.
     static func feed(_ cards: [Card]) -> [Card] {

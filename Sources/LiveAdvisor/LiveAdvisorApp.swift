@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var subscriptions = Set<AnyCancellable>()
     private var hotKey: LookupHotKey?
     private var contentHeight: CGFloat = 60
+    private var outsideClickMonitor: Any?
     /// The snapshot draws the panel off screen, so it must not be moved back under the icon.
     private var isSnapshot = false
 
@@ -127,12 +128,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.panelOpened()
         panel.orderFrontRegardless()
         reposition()
+        // A global monitor only sees clicks that go to other apps, so the icon and the panel itself are left to their own handlers.
+        outsideClickMonitor = outsideClickMonitor ?? NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in self?.closeAfterOutsideClick() }
+        }
     }
 
-    /// Only the menu bar icon closes the panel: the click that takes a screenshot must not close what is being photographed.
     private func hidePanel() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
         panel.orderOut(nil)
         engine.panelClosed()
+    }
+
+    /// A click elsewhere closes the panel, except the clicks of a screenshot: those must not close what is being photographed.
+    private func closeAfterOutsideClick() {
+        guard panel.isVisible else { return }
+        guard !Self.isCapturingScreen() else { return }
+        hidePanel()
+    }
+
+    /// ⌘⇧4 runs the `screencapture` command and ⌘⇧5 the screenshot app; either one means a capture is under way.
+    private static func isCapturingScreen() -> Bool {
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: AdvisorPolicy.screenshotBundleID).isEmpty {
+            return true
+        }
+        var pids = [pid_t](repeating: 0, count: 8192)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        var name = [CChar](repeating: 0, count: 64)
+        for pid in pids.prefix(max(count, 0)) where proc_name(pid, &name, UInt32(name.count)) > 0 {
+            if String(cString: name) == AdvisorPolicy.screenshotCommand { return true }
+        }
+        return false
     }
 
     /// Keeps the top edge under the menu bar icon while the content grows or shrinks.
