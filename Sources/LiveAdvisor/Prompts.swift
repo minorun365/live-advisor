@@ -104,6 +104,30 @@ enum Prompts {
     {"type":"object","properties":{"title":{"type":"string"},"recommendation":{"type":"string"},"points":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"good":{"type":"string"},"bad":{"type":"string"}},"required":["name","good","bad"],"additionalProperties":false}},"ask_next":{"type":"string"},"unknowns":{"type":"string"}},"required":["title","recommendation","points","options","ask_next","unknowns"],"additionalProperties":false}
     """#
 
+    static let taskSystem = """
+    会議の直近の発言を読み、本人がこのあと Claude に任せられる作業の依頼を拾う。本人はボタンを押したところで、数秒しか読めない。
+    拾うのは、本人が自分でやると言った作業（「Plannerに登録しといて」「メール送っておきます」「議事録まとめます」）と、相手から頼まれて本人が引き受けた作業だけ。
+    登録・起票・メールやチャットの下書き・資料や議事録の作成・調べもののように、パソコンの上で済む作業に限る。雑談・一般論・すでに終わった作業・担当が決まっていない話は拾わない。無ければ tasks は空配列にする。
+    最大3件で、最後のほうの発言ほど優先する。同じ作業を言い直しているだけなら1件にまとめる。
+    title は何をするかを20字以内の体言止めで書く（例：「Plannerに検証の担当を登録」「議事録を参加者へ送付」）。
+    instruction は Claude にそのまま渡す依頼文を150字以内で書く。どの道具の何に、何を、誰の担当で、いつまでに、を発言から分かる範囲で書き、発言に無いことは足さない。会議で決まっていない点は「〜は会議で決まっていない」と書く。
+    quote は根拠になった発言を、言い回しを変えずに60字以内で抜き出す。
+    """
+
+    static let taskSchema = #"""
+    {"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"instruction":{"type":"string"},"quote":{"type":"string"}},"required":["title","instruction","quote"],"additionalProperties":false}}},"required":["tasks"],"additionalProperties":false}
+    """#
+
+    static func taskPrompt(memo: String, transcript: String) -> String {
+        """
+        会議の要点メモ:
+        \(memo.isEmpty ? "（まだ無い）" : memo)
+
+        直近の発言:
+        \(transcript)
+        """
+    }
+
     static let historySystem = """
     会議の文字起こしを読み、本人の手元の記録フォルダから、この会議と同じ相手・同じ案件の過去の経緯を探して伝える。本人は会議の最中で、数秒しか読めない。
     探し方：会議の窓のタイトル（予定の件名のことが多い）と、文字起こしに出た社名・人名・製品名・話題を手がかりに、Grep と Glob で記録フォルダを探す。文字起こしは音声認識なので固有名詞が化けていることがある。読みの近い漢字、カタカナ、英字の表記も試す。案件のフォルダが見つかったら、README と、日付の新しい議事録・メモを優先して読む。読むファイルは10本までにする。

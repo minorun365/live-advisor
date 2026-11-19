@@ -18,7 +18,7 @@ struct TranscriptLine: Equatable {
 }
 
 enum CardKind: String, Codable {
-    case question, takeaway, risk, direction, history
+    case question, takeaway, risk, direction, history, task
 
     var label: String {
         switch self {
@@ -27,6 +27,7 @@ enum CardKind: String, Codable {
         case .takeaway: return "持ち帰り"
         case .risk: return "食い違い"
         case .direction: return "論点"
+        case .task: return "依頼"
         }
     }
 }
@@ -77,6 +78,10 @@ struct Card: Codable, Identifiable {
     var unknowns: String?
 
     var failure: String?
+
+    /// What a found request hands to the Claude app, written here so the person reads it before sending.
+    var handoffPrompt: String?
+    var handedOffAt: Date?
 
     var canRun: Bool { kind == .direction || research }
     var isRequested: Bool { requested == true }
@@ -132,6 +137,17 @@ struct DirectionOutput: Decodable {
 struct LookupOutput: Decodable {
     let title: String
     let search_questions: [String]
+}
+
+/// Requests found in what was said, for the person to pass to the Claude app.
+struct TaskOutput: Decodable {
+    struct Item: Decodable {
+        let title: String
+        let instruction: String
+        let quote: String
+    }
+
+    let tasks: [Item]
 }
 
 /// What the background stage found in the person's own notes.

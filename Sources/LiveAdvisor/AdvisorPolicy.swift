@@ -101,7 +101,7 @@ struct AdvisorPolicy {
         switch item.kind {
         case .question, .takeaway, .risk: return item.research && usedResearch < researchLimitPerMeeting
         case .direction: return usedAutomatic < automaticLimitPerMeeting && item.confidence >= automaticConfidence
-        case .history: return false
+        case .history, .task: return false
         }
     }
 
@@ -143,6 +143,38 @@ struct AdvisorPolicy {
             count += line.text.count
         }
         return picked
+    }
+
+    /// The request button reads the last five minutes: a request is usually said, discussed, then agreed.
+    static let taskWindow: TimeInterval = 300
+
+    static func taskLines(_ lines: [TranscriptLine], now: Date) -> [TranscriptLine] {
+        let recent = lines.filter { now.timeIntervalSince($0.at) <= taskWindow }
+        return recent.isEmpty ? Array(lines.suffix(20)) : recent
+    }
+
+    static let taskLimitPerPress = 3
+
+    /// The first message of the new session. It never starts with "/", which the input box would take as a command.
+    static func handoffText(instruction: String, quote: String, meeting: String?, folder: String?) -> String {
+        var lines = [
+            "会議中に頼まれた作業です。内容と宛先を確かめてから進めてください。",
+            "",
+            "やること：\(instruction)",
+            "根拠の発言：「\(quote)」",
+        ]
+        if let meeting, !meeting.isEmpty { lines.append("会議：\(meeting)") }
+        if let folder { lines.append("文字起こしの場所：\(folder)") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// A new session in the Claude app with the text already typed. Sending it is left to the person.
+    static func handoffURL(_ text: String) -> URL? {
+        // Everything but letters and digits is escaped: a bare "+" would come back as a space.
+        var allowed = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: Unicode.Scalar(0)..<Unicode.Scalar(128)))
+        allowed.insert(charactersIn: "-._~")
+        guard let query = text.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "claude://code/new?q=\(query)")
     }
 
     /// True when the card sat in an open panel long enough to have been noticed.

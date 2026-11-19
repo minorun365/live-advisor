@@ -13,7 +13,27 @@ struct AdvisorPolicySelfTest {
         try tightening()
         try failures()
         try followUpHistory()
+        try tasks()
         print("AdvisorPolicySelfTest OK")
+    }
+
+    static func tasks() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 3_000_000)
+        let old = TranscriptLine(at: now.addingTimeInterval(-400), speaker: .me, text: "古い話")
+        let fresh = TranscriptLine(at: now.addingTimeInterval(-100), speaker: .me, text: "Plannerに登録しときます")
+        try check(AdvisorPolicy.taskLines([old, fresh], now: now).map(\.text) == ["Plannerに登録しときます"], "依頼は直近5分の発言から探す")
+        try check(AdvisorPolicy.taskLines([old], now: now).map(\.text) == ["古い話"], "直近が無言なら最後の発言を読む")
+
+        let text = AdvisorPolicy.handoffText(instruction: "Plannerに登録する", quote: "登録しといて", meeting: "週次定例", folder: "/tmp/s")
+        try check(!text.hasPrefix("/"), "渡す文は「/」で始めない")
+        try check(text.contains("やること：Plannerに登録する") && text.contains("「登録しといて」") && text.contains("会議：週次定例") && text.contains("/tmp/s"), "依頼・発言・会議・場所を渡す")
+        try check(!AdvisorPolicy.handoffText(instruction: "x", quote: "y", meeting: nil, folder: nil).contains("会議："), "分からない会議名は書かない")
+
+        let url = AdvisorPolicy.handoffURL("やること：A&B=C+D\n二行目")
+        try check(url?.absoluteString.hasPrefix("claude://code/new?q=") == true, "新しいセッションを開くリンク")
+        let back = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems?.first?.value }
+        try check(back == "やること：A&B=C+D\n二行目", "記号と改行を壊さずに渡す")
+        try check(url?.absoluteString.contains("+") == false, "「+」を空白と読まれないよう符号化する")
     }
 
     static func followUpHistory() throws {

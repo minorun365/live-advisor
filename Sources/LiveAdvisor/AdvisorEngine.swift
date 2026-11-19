@@ -228,6 +228,84 @@ final class AdvisorEngine: ObservableObject {
         }
     }
 
+    /// The button for "pass what I was asked to Claude": it finds requests in the last five minutes and
+    /// shows each as a card. Nothing runs here; the card opens a new session in the Claude app, already typed,
+    /// and the person's own Enter there is the go-ahead. That keeps this app read-only.
+    func findTasks() {
+        guard phase == .running, !isRequesting else { return }
+        guard !transcript.isEmpty else {
+            problem = Self.noSpeechYet
+            return
+        }
+        problem = nil
+        var card = Card(kind: .task, title: "依頼を探しています", note: "", research: false, confidence: 1, createdAt: Date())
+        card.requested = true
+        card.state = .running
+        cards.insert(card, at: 0)
+        save()
+        Task {
+            await runTasks(card)
+            save()
+            if phase == .finished { writeSummary() }
+        }
+    }
+
+    func handOff(cardID: String) {
+        guard let card = cards.first(where: { $0.id == cardID }),
+              let text = card.handoffPrompt,
+              let url = AdvisorPolicy.handoffURL(text) else { return }
+        guard NSWorkspace.shared.open(url) else {
+            problem = "Claude アプリを開けませんでした"
+            return
+        }
+        update(cardID) {
+            $0.handedOffAt = Date()
+            $0.readAt = Date()
+        }
+        save()
+    }
+
+    private func runTasks(_ card: Card) async {
+        let recent = AdvisorPolicy.taskLines(transcript, now: Date()).map(\.rendered).joined(separator: "\n")
+        let call = ClaudeCall(
+            job: .tasks,
+            model: "sonnet",
+            effort: "low",
+            system: Prompts.taskSystem,
+            schema: Prompts.taskSchema,
+            budgetUSD: 0.10,
+            timeout: 45,
+            prompt: Prompts.taskPrompt(memo: memo, transcript: recent)
+        )
+        let result = await ClaudeRunner.run(call)
+        guard let data = result.structured, let output = try? JSONDecoder().decode(TaskOutput.self, from: data) else {
+            finish(card.id, failure: Self.message(for: result.failure))
+            return
+        }
+        let found = Array(output.tasks.filter { !$0.instruction.isEmpty }.prefix(AdvisorPolicy.taskLimitPerPress))
+        guard !found.isEmpty else {
+            update(card.id) { $0.title = "依頼は見つかりませんでした"; $0.conclusion = "直近5分の発言に、任せられる作業はありません" }
+            finish(card.id, failure: nil)
+            return
+        }
+        cards.removeAll { $0.id == card.id }
+        let now = Date()
+        // Inserted oldest first so the latest request ends up on top.
+        for item in found.reversed() {
+            var task = Card(kind: .task, title: item.title, note: "", research: false, confidence: 1, createdAt: now)
+            task.requested = true
+            task.conclusion = "「\(item.quote)」"
+            task.handoffPrompt = AdvisorPolicy.handoffText(
+                instruction: item.instruction,
+                quote: item.quote,
+                meeting: windowTitle,
+                folder: folder?.path
+            )
+            cards.insert(task, at: 0)
+            finish(task.id, failure: nil)
+        }
+    }
+
     func enableForThisMeeting() {
         guard phase == .paused else { return }
         phase = .running
@@ -791,6 +869,7 @@ final class AdvisorEngine: ObservableObject {
             if let unknowns = card.unknowns { lines.append("- 未確認：\(unknowns)") }
             if let conclusion = card.conclusion { lines.append("- 結論：\(conclusion)") }
             if let detail = card.detail, !detail.isEmpty { lines.append("- 補足：\(detail)") }
+            if card.handedOffAt != nil { lines.append("- Claude アプリへ渡した") }
             for source in card.sources { lines.append("- 出典：\(source.title) \(source.url)") }
             lines.append("")
         }

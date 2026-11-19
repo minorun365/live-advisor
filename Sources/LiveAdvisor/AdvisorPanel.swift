@@ -86,6 +86,7 @@ struct AdvisorPanel: View {
             }
             Spacer(minLength: 8)
             if engine.phase == .running {
+                TaskButton(isBusy: engine.isRequesting) { engine.findTasks() }
                 RequestButton(isBusy: engine.isRequesting) { engine.requestNow() }
             }
             Menu {
@@ -144,7 +145,8 @@ struct AdvisorPanel: View {
                         expanded: expandsAllCards || openCardID == card.id,
                         toggle: { toggleCard(card.id) },
                         run: engine.run,
-                        markRead: engine.markRead
+                        markRead: engine.markRead,
+                        handOff: engine.handOff
                     )
                     .id(card.id)
                 }
@@ -206,6 +208,53 @@ private struct RequestButton: View {
     }
 }
 
+/// Quieter than the lookup button: it is pressed far less often, and only when something was asked of the person.
+private struct TaskButton: View {
+    let isBusy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button("依頼を確認", action: action)
+            .buttonStyle(OutlineButtonStyle(isBusy: isBusy))
+            .disabled(isBusy)
+            .help("直近5分の発言から、Claude に任せられる依頼を探します")
+            .fixedSize()
+    }
+}
+
+private struct OutlineButtonStyle: ButtonStyle {
+    let isBusy: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Palette.accent.opacity(isBusy ? 0.5 : 1))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(configuration.isPressed ? Palette.soft : Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.accent.opacity(isBusy ? 0.3 : 0.6)))
+    }
+}
+
+/// Opens a new session in the Claude app with the request typed in. Sending it there is the go-ahead.
+private struct HandoffRow: View {
+    let handedOff: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            if handedOff {
+                Text("Claude アプリへ渡しました")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Palette.secondary)
+            }
+            Button(handedOff ? "もう一度渡す" : "Claude に渡す", action: action)
+                .buttonStyle(QuietButtonStyle())
+        }
+    }
+}
+
 private struct ResumeRow: View {
     let enable: () -> Void
 
@@ -232,6 +281,7 @@ private struct FeedCard: View {
     let toggle: () -> Void
     let run: (String) -> Void
     let markRead: (String) -> Void
+    let handOff: (String) -> Void
 
     private var answer: String? { card.recommendation ?? card.conclusion }
 
@@ -248,11 +298,19 @@ private struct FeedCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: press) {
-                summary.contentShape(Rectangle())
+            if canExpand {
+                Button(action: press) {
+                    summary.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                // A disabled button greys its label, and a card with nothing more to open still has to read clearly.
+                summary.onTapGesture { markRead(card.id) }
             }
-            .buttonStyle(.plain)
-            .disabled(!canExpand)
+            if card.kind == .task, card.handoffPrompt != nil {
+                HandoffRow(handedOff: card.handedOffAt != nil) { handOff(card.id) }
+                    .padding(.top, 8)
+            }
             if expanded, canExpand {
                 details
                     .padding(.top, 10)

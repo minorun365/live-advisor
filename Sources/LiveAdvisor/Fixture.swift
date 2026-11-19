@@ -72,7 +72,13 @@ enum Fixture {
         history.points = ["空くのは火曜の深夜2〜4時", "こちらの宿題：止められる時間の目安", "先方の宿題：検証環境の用意"]
         history.askNext = "検証環境は用意できそうですか"
         history.sources = [CardSource(title: "soramame-space/notes-2026-10-20.md", url: "file:///tmp/notes-2026-10-20.md")]
-        return [direction, answer, candidate, takeaway, history]
+        var task = Card(kind: .task, title: "Plannerに検証の担当を登録", note: "", research: false, confidence: 1, createdAt: Date())
+        task.finishedAt = Date()
+        task.state = .done
+        task.requested = true
+        task.conclusion = "「検証の担当、Plannerに登録しときますね。期限は来週金曜で」"
+        task.handoffPrompt = AdvisorPolicy.handoffText(instruction: "Planner に検証の担当タスクを登録する", quote: "検証の担当、Plannerに登録しときますね", meeting: nil, folder: nil)
+        return [task, direction, answer, candidate, takeaway, history]
     }
 }
 #endif
