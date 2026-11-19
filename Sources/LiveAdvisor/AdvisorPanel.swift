@@ -1,17 +1,19 @@
 import SwiftUI
 
+/// Monochrome on white: the only marks that stand out are the unread dot and the lookup button.
 private enum Palette {
-    static let ink = Color(red: 0.11, green: 0.11, blue: 0.13)
-    static let secondary = Color(red: 0.42, green: 0.43, blue: 0.47)
-    static let hairline = Color(red: 0.92, green: 0.92, blue: 0.94)
-    static let soft = Color(red: 0.965, green: 0.97, blue: 0.98)
-    static let callout = Color(red: 0.945, green: 0.945, blue: 0.955)
-    static let accent = Color(red: 0.10, green: 0.36, blue: 0.87)
-    static let question = Color(red: 0.110, green: 0.110, blue: 0.129)
-    static let answer = Color(red: 0.420, green: 0.427, blue: 0.463)
-    static let quiet = Color(red: 0.420, green: 0.427, blue: 0.463)
-    static let unread = Color(red: 1.0, green: 0.975, blue: 0.82)
-    static let unreadEdge = Color(red: 0.96, green: 0.90, blue: 0.62)
+    static let ink = Color(red: 0.094, green: 0.094, blue: 0.106)        // #18181b
+    static let secondary = Color(red: 0.443, green: 0.443, blue: 0.478)  // #71717a
+    static let label = Color(red: 0.631, green: 0.631, blue: 0.667)      // #a1a1aa
+    static let hairline = Color(red: 0.925, green: 0.925, blue: 0.937)   // #ececef
+    static let soft = Color(red: 0.957, green: 0.957, blue: 0.961)       // #f4f4f5
+    static let slim = Color(red: 0.98, green: 0.98, blue: 0.98)          // #fafafa
+    static let callout = soft
+    static let accent = ink
+    static let question = ink
+    static let answer = Color(red: 0.322, green: 0.322, blue: 0.357)     // #52525b
+    static let quiet = answer
+    static let unreadDot = ink
 }
 
 struct PanelHeightKey: PreferenceKey {
@@ -38,7 +40,6 @@ struct AdvisorPanel: View {
         VStack(spacing: 0) {
             header
             if hasBody {
-                Rectangle().fill(Palette.hairline).frame(height: 1)
                 ScrollViewReader { proxy in
                     ScrollView {
                         content
@@ -58,8 +59,15 @@ struct AdvisorPanel: View {
             }
         }
         .frame(width: Self.width)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background {
+            // The blur keeps the meeting window faintly visible behind; the white keeps text contrast steady over any wallpaper.
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Color.white.opacity(0.86)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.black.opacity(0.14), lineWidth: 0.5))
         .environment(\.colorScheme, .light)
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { onHeightChange($0) }
@@ -108,7 +116,7 @@ struct AdvisorPanel: View {
             .fixedSize()
             .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
 
@@ -151,7 +159,9 @@ struct AdvisorPanel: View {
                     .id(card.id)
                 }
             }
-            .padding(10)
+            .padding(.horizontal, 10)
+            .padding(.top, 2)
+            .padding(.bottom, 10)
             .animation(.snappy(duration: 0.25), value: feed.map(\.id))
         }
     }
@@ -179,7 +189,8 @@ private struct TranscriberRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.soft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline))
     }
 }
 
@@ -199,7 +210,7 @@ private struct RequestButton: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Palette.accent.opacity(isBusy ? 0.6 : 1), in: Capsule())
+            .background(Palette.accent.opacity(isBusy ? 0.55 : 1), in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
@@ -228,11 +239,10 @@ private struct OutlineButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Palette.accent.opacity(isBusy ? 0.5 : 1))
+            .foregroundStyle(Palette.ink.opacity(isBusy ? 0.4 : 1))
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(configuration.isPressed ? Palette.soft : Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.accent.opacity(isBusy ? 0.3 : 0.6)))
+            .background(configuration.isPressed ? Palette.hairline : Palette.soft, in: Capsule())
     }
 }
 
@@ -320,11 +330,8 @@ private struct FeedCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, isSlim ? 7 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(card.isUnread ? Palette.unread : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(card.isUnread ? Palette.unreadEdge : Palette.hairline)
-        )
+        .background(isSlim ? Palette.slim : Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline))
         .animation(.easeOut(duration: 0.3), value: card.isUnread)
     }
 
@@ -351,6 +358,7 @@ private struct FeedCard: View {
 
     private var slimSummary: some View {
         HStack(spacing: 8) {
+            if card.isUnread { unreadDot }
             Text(card.title)
                 .font(.system(size: 13))
                 .foregroundStyle(Palette.quiet)
@@ -366,6 +374,10 @@ private struct FeedCard: View {
         }
     }
 
+    private var unreadDot: some View {
+        Circle().fill(Palette.unreadDot).frame(width: 7, height: 7)
+    }
+
     private var chevron: some View {
         Image(systemName: "chevron.right")
             .font(.system(size: 10, weight: .semibold))
@@ -376,13 +388,20 @@ private struct FeedCard: View {
     private var fullSummary: some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if card.isUnread { unreadDot }
+                    Text(card.kind.label)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(Palette.label)
+                }
                 Text(card.title)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14.5, weight: .bold))
                     .foregroundStyle(Palette.question)
                     .fixedSize(horizontal: false, vertical: true)
                 if let answer {
                     Text(answer)
-                        .font(.system(size: 14))
+                        .font(.system(size: 13.5))
                         .foregroundStyle(Palette.answer)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -508,11 +527,10 @@ private struct QuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Palette.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(configuration.isPressed ? Palette.soft : Color.white, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.hairline))
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(configuration.isPressed ? Palette.hairline : Palette.soft, in: Capsule())
     }
 }
 
@@ -526,7 +544,8 @@ private struct SourcesLine: View {
                     if let url = URL(string: source.url) {
                         Link(source.title, destination: url)
                             .font(.system(size: 11))
-                            .foregroundStyle(Palette.accent)
+                            .foregroundStyle(Palette.answer)
+                            .underline(color: Palette.label)
                             .lineLimit(1)
                     }
                 }
